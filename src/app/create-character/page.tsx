@@ -7,9 +7,9 @@ export default function CreateCharacterPage() {
   const [gender, setGender] = useState("");
   const [country, setCountry] = useState("");
 
-  const startGame = () => {
-    alert(`Welcome ${name || "Player"} from ${country || "your country"}!`);
-  };
+    const startGame = () => {
+      window.location.href = "/game";
+    };
 
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
