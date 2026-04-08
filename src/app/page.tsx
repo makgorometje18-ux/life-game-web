@@ -10,9 +10,11 @@ export default function Home() {
           Build your character. Live the world. Play your story.
         </p>
 
+      <a href="/create-character">
         <button className="bg-white text-black px-6 py-3 rounded-xl font-semibold">
-          Start Your Life
+        Start Your Life
         </button>
+      </a>
       </div>
     </main>
   );
