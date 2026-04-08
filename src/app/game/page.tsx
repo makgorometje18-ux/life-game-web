@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 export default function GamePage() {
   const [name, setName] = useState("Player");
   const [country, setCountry] = useState("Unknown");
-  const [age, setAge] = useState(18);
+  const [age, setAge] = useState(10);
   const [money, setMoney] = useState(500);
 
   useEffect(() => {
@@ -16,7 +16,11 @@ export default function GamePage() {
 
     if (savedName) setName(savedName);
     if (savedCountry) setCountry(savedCountry);
-    if (savedAge) setAge(Number(savedAge));
+    if (savedAge) {
+     setAge(Number(savedAge));
+    } else {
+    localStorage.setItem("playerAge", "10");
+    }
     if (savedMoney) setMoney(Number(savedMoney));
   }, []);
 
