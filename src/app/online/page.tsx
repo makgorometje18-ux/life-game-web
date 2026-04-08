@@ -75,11 +75,6 @@ export default function OnlinePage() {
     const handleBeforeUnload = () => {
       if (!currentUserId) return;
 
-      navigator.sendBeacon?.(
-        "/",
-        new Blob([], { type: "text/plain" })
-      );
-
       supabase
         .from("players")
         .update({
@@ -122,14 +117,25 @@ export default function OnlinePage() {
       <div className="max-w-4xl mx-auto">
         <div className="bg-zinc-900 rounded-2xl p-6 mb-6">
           <h1 className="text-3xl font-bold mb-2">Online Players</h1>
-          <p className="text-gray-300 mb-4">Logged in as: {userEmail}</p>
+          <p className="text-gray-300 mb-6">Logged in as: {userEmail}</p>
 
-          <button
-            onClick={logout}
-            className="bg-red-500 text-white px-5 py-3 rounded-xl font-semibold"
-          >
-            Logout
-          </button>
+          <div className="flex gap-3 flex-wrap">
+            <button
+              onClick={() => {
+                window.location.href = "/game";
+              }}
+              className="bg-white text-black px-5 py-3 rounded-xl font-semibold"
+            >
+              Enter Game
+            </button>
+
+            <button
+              onClick={logout}
+              className="bg-red-500 text-white px-5 py-3 rounded-xl font-semibold"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-4">

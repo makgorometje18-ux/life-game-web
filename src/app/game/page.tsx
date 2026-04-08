@@ -96,86 +96,108 @@ export default function GamePage() {
       return;
     }
 
+    const newAge = age + 1;
     const newMoney = money - 100;
     const newEducation = education + 10;
     const newHappiness = Math.max(0, happiness - 5);
+    const newHealth = Math.max(0, health - 2);
 
+    setAge(newAge);
     setMoney(newMoney);
     setEducation(newEducation);
     setHappiness(newHappiness);
+    setHealth(newHealth);
 
     const chance = Math.random();
 
     if (chance < 0.5) {
-      setEventMessage("You paid school fees and did well in class. Education increased.");
+      setEventMessage(`You completed a school year and are now ${newAge}. Education increased.`);
     } else {
-      setEventMessage("You paid school fees, but school was stressful this year.");
+      setEventMessage(`You completed a stressful school year and are now ${newAge}.`);
     }
 
     await savePlayer({
+      age: newAge,
       money: newMoney,
       education: newEducation,
       happiness: newHappiness,
+      health: newHealth,
     });
   };
 
   const lookForJob = async () => {
-    const chance = Math.random();
+    const newAge = age + 1;
+    const newHealth = Math.max(0, health - 2);
     let newMoney = money;
     let newHappiness = happiness;
     let message = "";
+
+    if (newAge < 16) {
+      setEventMessage("You are still too young to work. Focus on school for now.");
+      return;
+    }
+
+    const chance = Math.random();
 
     if (chance < 0.4) {
       newHappiness = Math.max(0, happiness - 5);
-      message = "No job found this year. You feel disappointed.";
+      message = `At age ${newAge}, no job found this year. You feel disappointed.`;
     } else if (chance < 0.8) {
       newMoney = money + 300;
       newHappiness = Math.min(100, happiness + 5);
-      message = "You got a job and earned R300.";
+      message = `At age ${newAge}, you got a job and earned R300.`;
     } else {
       newMoney = money + 800;
       newHappiness = Math.min(100, happiness + 10);
-      message = "You landed a high-paying job and earned R800.";
+      message = `At age ${newAge}, you landed a high-paying job and earned R800.`;
     }
 
-    setMoney(newMoney);
-    setHappiness(newHappiness);
-    setEventMessage(message);
-
-    await savePlayer({
-      money: newMoney,
-      happiness: newHappiness,
-    });
-  };
-
-  const startHustle = async () => {
-    const chance = Math.random();
-    let newMoney = money;
-    let newHappiness = happiness;
-    let newHealth = health;
-    let message = "";
-
-    if (chance < 0.3) {
-      newMoney = money - 200;
-      newHappiness = Math.max(0, happiness - 10);
-      newHealth = Math.max(0, health - 5);
-      message = "Your hustle failed and you lost R200.";
-    } else if (chance < 0.7) {
-      newMoney = money + 400;
-      newHappiness = Math.min(100, happiness + 8);
-      message = "Your hustle made profit and you earned R400.";
-    } else {
-      newMoney = money + 1000;
-      newHappiness = Math.min(100, happiness + 15);
-      message = "Your hustle blew up and earned R1000.";
-    }
-
+    setAge(newAge);
     setMoney(newMoney);
     setHappiness(newHappiness);
     setHealth(newHealth);
     setEventMessage(message);
 
     await savePlayer({
+      age: newAge,
+      money: newMoney,
+      happiness: newHappiness,
+      health: newHealth,
+    });
+  };
+
+  const startHustle = async () => {
+    const newAge = age + 1;
+    let newMoney = money;
+    let newHappiness = happiness;
+    let newHealth = Math.max(0, health - 2);
+    let message = "";
+
+    const chance = Math.random();
+
+    if (chance < 0.3) {
+      newMoney = money - 200;
+      newHappiness = Math.max(0, happiness - 10);
+      newHealth = Math.max(0, newHealth - 5);
+      message = `At age ${newAge}, your hustle failed and you lost R200.`;
+    } else if (chance < 0.7) {
+      newMoney = money + 400;
+      newHappiness = Math.min(100, happiness + 8);
+      message = `At age ${newAge}, your hustle made profit and you earned R400.`;
+    } else {
+      newMoney = money + 1000;
+      newHappiness = Math.min(100, happiness + 15);
+      message = `At age ${newAge}, your hustle blew up and earned R1000.`;
+    }
+
+    setAge(newAge);
+    setMoney(newMoney);
+    setHappiness(newHappiness);
+    setHealth(newHealth);
+    setEventMessage(message);
+
+    await savePlayer({
+      age: newAge,
       money: newMoney,
       happiness: newHappiness,
       health: newHealth,
