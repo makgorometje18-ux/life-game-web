@@ -106,6 +106,16 @@ export default function GamePage() {
           >
             Start a Hustle
           </button>
+
+          <button
+            onClick={() => {
+             localStorage.clear();
+             window.location.href = "/";
+            }}
+            className="w-full bg-red-500 text-white py-3 rounded-xl font-semibold mt-3"
+            >
+            Restart Life
+            </button>
         </div>
       </div>
     </main>
