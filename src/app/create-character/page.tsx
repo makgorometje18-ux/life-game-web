@@ -8,7 +8,11 @@ export default function CreateCharacterPage() {
   const [country, setCountry] = useState("");
 
     const startGame = () => {
-      window.location.href = "/game";
+     localStorage.setItem("playerName", name);
+     localStorage.setItem("playerGender", gender);
+     localStorage.setItem("playerCountry", country);
+
+     window.location.href = "/game";
     };
 
   return (

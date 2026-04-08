@@ -1,4 +1,19 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 export default function GamePage() {
+  const [name, setName] = useState("Player");
+  const [country, setCountry] = useState("Unknown");
+
+  useEffect(() => {
+    const savedName = localStorage.getItem("playerName");
+    const savedCountry = localStorage.getItem("playerCountry");
+
+    if (savedName) setName(savedName);
+    if (savedCountry) setCountry(savedCountry);
+  }, []);
+
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
       <div className="w-full max-w-2xl bg-zinc-900 rounded-2xl p-8 shadow-lg">
@@ -7,7 +22,7 @@ export default function GamePage() {
         <div className="grid grid-cols-2 gap-4 mb-6">
           <div className="bg-black rounded-xl p-4">
             <p className="text-gray-400 text-sm">Name</p>
-            <p className="text-xl font-semibold">Player</p>
+            <p className="text-xl font-semibold">{name}</p>
           </div>
 
           <div className="bg-black rounded-xl p-4">
@@ -22,7 +37,7 @@ export default function GamePage() {
 
           <div className="bg-black rounded-xl p-4">
             <p className="text-gray-400 text-sm">Country</p>
-            <p className="text-xl font-semibold">South Africa</p>
+            <p className="text-xl font-semibold">{country}</p>
           </div>
         </div>
 
