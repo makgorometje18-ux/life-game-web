@@ -8,6 +8,8 @@ type LoopState = {
   timeoutId: number;
 };
 
+const MASTER_VOLUME = 0.22;
+
 const melodyNotes = [261.63, 293.66, 329.63, 392, 440, 523.25];
 const bassline = [65.41, 73.42, 82.41, 98];
 const shakerPattern = [0.62, 0.2, 0.42, 0.18, 0.58, 0.22, 0.36, 0.16];
@@ -185,6 +187,7 @@ export function AudioController() {
     }
 
     const master = context.createGain();
+    const compressor = context.createDynamicsCompressor();
     const filter = context.createBiquadFilter();
     const noiseBuffer = makeNoiseBuffer(context);
     const stereo =
@@ -195,14 +198,21 @@ export function AudioController() {
     filter.type = "lowpass";
     filter.frequency.value = 2200;
 
-    master.gain.value = 0.08;
+    compressor.threshold.value = -20;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.01;
+    compressor.release.value = 0.22;
+
+    master.gain.value = MASTER_VOLUME;
     if (stereo) {
       filter.connect(stereo);
       stereo.pan.value = -0.03;
-      stereo.connect(master);
+      stereo.connect(compressor);
     } else {
-      filter.connect(master);
+      filter.connect(compressor);
     }
+    compressor.connect(master);
     master.connect(context.destination);
 
     let stepIndex = 0;
@@ -240,7 +250,7 @@ export function AudioController() {
           melodyNotes[notePattern[currentStep % notePattern.length]],
           startTime + 0.02,
           0.28,
-          currentStep % 4 === 0 ? 0.1 : 0.07
+          currentStep % 4 === 0 ? 0.14 : 0.1
         );
       }
 
