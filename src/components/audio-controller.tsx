@@ -20,6 +20,27 @@ const STEP_SECONDS = 0.42;
 const LOOKAHEAD_STEPS = 8;
 const WELCOME_MESSAGE =
   "Welcome to the real life game Africa. Build your character. Live the world and play your real story.";
+const scoreVoice = (voice: SpeechSynthesisVoice) => {
+  const label = `${voice.name} ${voice.lang}`.toLowerCase();
+  let score = 0;
+
+  if (label.includes("en-za")) score += 8;
+  if (label.includes("en-gb")) score += 7;
+  if (label.includes("en-us")) score += 6;
+  if (label.includes("english")) score += 4;
+
+  if (/david|mark|george|james|guy|male|man|daniel|fred|alex|thomas|lee|matthew|arthur|brian/.test(label)) {
+    score += 12;
+  }
+
+  if (/zira|aria|susan|samantha|victoria|female|woman|girl|linda|jenny|serena|natasha|katya/.test(label)) {
+    score -= 14;
+  }
+
+  if (voice.localService) score += 2;
+
+  return score;
+};
 
 const makeNoiseBuffer = (context: AudioContext) => {
   const buffer = context.createBuffer(1, Math.floor(context.sampleRate * 0.18), context.sampleRate);
@@ -190,20 +211,16 @@ export function AudioController() {
     const utterance = new SpeechSynthesisUtterance(WELCOME_MESSAGE);
     const voices = synth.getVoices();
     const preferredVoice =
-      voices.find((voice) =>
-        /david|mark|microsoft guy|male|english united kingdom|en-gb/i.test(
-          `${voice.name} ${voice.lang}`
-        )
-      ) ??
-      voices.find((voice) => /en/i.test(voice.lang)) ??
-      null;
+      voices
+        .filter((voice) => /en/i.test(voice.lang))
+        .sort((first, second) => scoreVoice(second) - scoreVoice(first))[0] ?? null;
 
     if (preferredVoice) {
       utterance.voice = preferredVoice;
     }
 
-    utterance.rate = 0.84;
-    utterance.pitch = 0.58;
+    utterance.rate = 0.8;
+    utterance.pitch = 0.4;
     utterance.volume = 1;
 
     hasSpokenWelcomeRef.current = true;
