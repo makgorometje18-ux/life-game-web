@@ -18,29 +18,6 @@ const kickPattern = [1, 0, 0, 1, 0, 1, 0, 0];
 const notePattern = [0, 2, 3, 1, 4, 2, 5, 3];
 const STEP_SECONDS = 0.42;
 const LOOKAHEAD_STEPS = 8;
-const WELCOME_MESSAGE =
-  "Welcome to the real life game Africa. Build your character. Live the world and play your real story.";
-const scoreVoice = (voice: SpeechSynthesisVoice) => {
-  const label = `${voice.name} ${voice.lang}`.toLowerCase();
-  let score = 0;
-
-  if (label.includes("en-za")) score += 8;
-  if (label.includes("en-gb")) score += 7;
-  if (label.includes("en-us")) score += 6;
-  if (label.includes("english")) score += 4;
-
-  if (/david|mark|george|james|guy|male|man|daniel|fred|alex|thomas|lee|matthew|arthur|brian/.test(label)) {
-    score += 12;
-  }
-
-  if (/zira|aria|susan|samantha|victoria|female|woman|girl|linda|jenny|serena|natasha|katya/.test(label)) {
-    score -= 14;
-  }
-
-  if (voice.localService) score += 2;
-
-  return score;
-};
 
 const makeNoiseBuffer = (context: AudioContext) => {
   const buffer = context.createBuffer(1, Math.floor(context.sampleRate * 0.18), context.sampleRate);
@@ -180,7 +157,7 @@ const shakerTone = (
 export function AudioController() {
   const [isMuted, setIsMuted] = useState(true);
   const loopRef = useRef<LoopState | null>(null);
-  const hasSpokenWelcomeRef = useRef(false);
+  const welcomeAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const stopLoop = useCallback(() => {
     const loop = loopRef.current;
@@ -202,30 +179,19 @@ export function AudioController() {
     melodicTone(context, context.destination, 1318.5, now + 0.03, 0.08, 0.045);
   };
 
-  const speakWelcomeMessage = useCallback(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window) || hasSpokenWelcomeRef.current) {
-      return;
+  const playWelcomeAudio = useCallback(async () => {
+    if (!welcomeAudioRef.current) {
+      const audio = new Audio("/welcome-voice.mp4");
+      audio.preload = "auto";
+      welcomeAudioRef.current = audio;
     }
 
-    const synth = window.speechSynthesis;
-    const utterance = new SpeechSynthesisUtterance(WELCOME_MESSAGE);
-    const voices = synth.getVoices();
-    const preferredVoice =
-      voices
-        .filter((voice) => /en/i.test(voice.lang))
-        .sort((first, second) => scoreVoice(second) - scoreVoice(first))[0] ?? null;
-
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
+    try {
+      welcomeAudioRef.current.currentTime = 0;
+      await welcomeAudioRef.current.play();
+    } catch (error) {
+      console.error("Welcome audio could not start", error);
     }
-
-    utterance.rate = 0.8;
-    utterance.pitch = 0.4;
-    utterance.volume = 1;
-
-    hasSpokenWelcomeRef.current = true;
-    synth.cancel();
-    synth.speak(utterance);
   }, []);
 
   const startLoop = useCallback(async () => {
@@ -323,7 +289,7 @@ export function AudioController() {
 
       try {
         await startLoop();
-        speakWelcomeMessage();
+        await playWelcomeAudio();
       } catch (error) {
         console.error("Audio could not start", error);
       }
@@ -332,24 +298,12 @@ export function AudioController() {
     }
 
     setIsMuted(true);
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+    if (welcomeAudioRef.current) {
+      welcomeAudioRef.current.pause();
+      welcomeAudioRef.current.currentTime = 0;
     }
     stopLoop();
-  }, [isMuted, speakWelcomeMessage, startLoop, stopLoop]);
-
-  useEffect(() => {
-    if (!("speechSynthesis" in window)) return;
-
-    const synth = window.speechSynthesis;
-    const loadVoices = () => {
-      synth.getVoices();
-    };
-
-    loadVoices();
-    synth.addEventListener("voiceschanged", loadVoices);
-    return () => synth.removeEventListener("voiceschanged", loadVoices);
-  }, []);
+  }, [isMuted, playWelcomeAudio, startLoop, stopLoop]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -370,8 +324,8 @@ export function AudioController() {
 
   useEffect(
     () => () => {
-      if ("speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
+      if (welcomeAudioRef.current) {
+        welcomeAudioRef.current.pause();
       }
       stopLoop();
     },
