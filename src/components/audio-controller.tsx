@@ -18,6 +18,8 @@ const kickPattern = [1, 0, 0, 1, 0, 1, 0, 0];
 const notePattern = [0, 2, 3, 1, 4, 2, 5, 3];
 const STEP_SECONDS = 0.42;
 const LOOKAHEAD_STEPS = 8;
+const WELCOME_MESSAGE =
+  "Welcome to the real life game Africa. Build your character. Live the world and play your real story.";
 
 const makeNoiseBuffer = (context: AudioContext) => {
   const buffer = context.createBuffer(1, Math.floor(context.sampleRate * 0.18), context.sampleRate);
@@ -157,6 +159,7 @@ const shakerTone = (
 export function AudioController() {
   const [isMuted, setIsMuted] = useState(true);
   const loopRef = useRef<LoopState | null>(null);
+  const hasSpokenWelcomeRef = useRef(false);
 
   const stopLoop = useCallback(() => {
     const loop = loopRef.current;
@@ -177,6 +180,36 @@ export function AudioController() {
     melodicTone(context, context.destination, 1046.5, now, 0.09, 0.06);
     melodicTone(context, context.destination, 1318.5, now + 0.03, 0.08, 0.045);
   };
+
+  const speakWelcomeMessage = useCallback(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window) || hasSpokenWelcomeRef.current) {
+      return;
+    }
+
+    const synth = window.speechSynthesis;
+    const utterance = new SpeechSynthesisUtterance(WELCOME_MESSAGE);
+    const voices = synth.getVoices();
+    const preferredVoice =
+      voices.find((voice) =>
+        /david|mark|microsoft guy|male|english united kingdom|en-gb/i.test(
+          `${voice.name} ${voice.lang}`
+        )
+      ) ??
+      voices.find((voice) => /en/i.test(voice.lang)) ??
+      null;
+
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
+
+    utterance.rate = 0.84;
+    utterance.pitch = 0.58;
+    utterance.volume = 1;
+
+    hasSpokenWelcomeRef.current = true;
+    synth.cancel();
+    synth.speak(utterance);
+  }, []);
 
   const startLoop = useCallback(async () => {
     if (loopRef.current) return;
@@ -273,6 +306,7 @@ export function AudioController() {
 
       try {
         await startLoop();
+        speakWelcomeMessage();
       } catch (error) {
         console.error("Audio could not start", error);
       }
@@ -281,8 +315,24 @@ export function AudioController() {
     }
 
     setIsMuted(true);
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
     stopLoop();
-  }, [isMuted, startLoop, stopLoop]);
+  }, [isMuted, speakWelcomeMessage, startLoop, stopLoop]);
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+
+    const synth = window.speechSynthesis;
+    const loadVoices = () => {
+      synth.getVoices();
+    };
+
+    loadVoices();
+    synth.addEventListener("voiceschanged", loadVoices);
+    return () => synth.removeEventListener("voiceschanged", loadVoices);
+  }, []);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -301,7 +351,15 @@ export function AudioController() {
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [isMuted]);
 
-  useEffect(() => () => stopLoop(), [stopLoop]);
+  useEffect(
+    () => () => {
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      stopLoop();
+    },
+    [stopLoop]
+  );
 
   return (
     <button
