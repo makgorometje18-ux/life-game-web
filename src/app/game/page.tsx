@@ -59,7 +59,7 @@ export default function GamePage() {
   const [playerId, setPlayerId] = useState("");
   const [name, setName] = useState("Player");
   const [country, setCountry] = useState("Unknown");
-  const [age, setAge] = useState(10);
+  const [age, setAge] = useState(18);
   const [money, setMoney] = useState(500);
   const [health, setHealth] = useState(100);
   const [happiness, setHappiness] = useState(100);
@@ -117,11 +117,11 @@ export default function GamePage() {
         }
       }
 
-      const intro = `${data.name || "Player"} is ${data.age ?? 10} years old in ${data.country || "Unknown"}. Your next choice shapes everything.`;
+      const intro = `${data.name || "Player"} is ${data.age ?? 18} years old in ${data.country || "Unknown"}. Your next choice shapes everything.`;
 
       setName(data.name || "Player");
       setCountry(data.country || "Unknown");
-      setAge(data.age ?? 10);
+      setAge(data.age ?? 18);
       setMoney(data.money ?? 500);
       setHealth(data.health ?? 100);
       setHappiness(data.happiness ?? 100);

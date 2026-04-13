@@ -87,6 +87,7 @@ export default function AuthPage() {
             id: user.id,
             email: user.email,
             name: user.email?.split("@")[0] || "Player",
+            age: 18,
             country: "South Africa",
             is_online: true,
             updated_at: new Date().toISOString(),
