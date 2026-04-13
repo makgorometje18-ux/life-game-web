@@ -186,16 +186,23 @@ export function AudioController() {
 
     const master = context.createGain();
     const filter = context.createBiquadFilter();
-    const stereo = context.createStereoPanner();
     const noiseBuffer = makeNoiseBuffer(context);
+    const stereo =
+      "createStereoPanner" in context
+        ? context.createStereoPanner()
+        : null;
 
     filter.type = "lowpass";
     filter.frequency.value = 2200;
 
-    master.gain.value = 0.06;
-    filter.connect(stereo);
-    stereo.pan.value = -0.03;
-    stereo.connect(master);
+    master.gain.value = 0.08;
+    if (stereo) {
+      filter.connect(stereo);
+      stereo.pan.value = -0.03;
+      stereo.connect(master);
+    } else {
+      filter.connect(master);
+    }
     master.connect(context.destination);
 
     let stepIndex = 0;
@@ -250,33 +257,21 @@ export function AudioController() {
     scheduleWindow();
   }, []);
 
-  useEffect(() => {
+  const toggleSound = useCallback(async () => {
     if (isMuted) {
-      stopLoop();
-      return;
-    }
+      setIsMuted(false);
 
-    const unlockAudio = async () => {
       try {
         await startLoop();
       } catch (error) {
         console.error("Audio could not start", error);
       }
-    };
 
-    const handleFirstInteraction = () => {
-      void unlockAudio();
-      window.removeEventListener("pointerdown", handleFirstInteraction);
-      window.removeEventListener("keydown", handleFirstInteraction);
-    };
+      return;
+    }
 
-    window.addEventListener("pointerdown", handleFirstInteraction);
-    window.addEventListener("keydown", handleFirstInteraction);
-
-    return () => {
-      window.removeEventListener("pointerdown", handleFirstInteraction);
-      window.removeEventListener("keydown", handleFirstInteraction);
-    };
+    setIsMuted(true);
+    stopLoop();
   }, [isMuted, startLoop, stopLoop]);
 
   useEffect(() => {
@@ -301,7 +296,9 @@ export function AudioController() {
   return (
     <button
       type="button"
-      onClick={() => setIsMuted((current) => !current)}
+      onClick={() => {
+        void toggleSound();
+      }}
       className="fixed bottom-4 right-4 z-50 rounded-full border border-white/15 bg-black/65 px-4 py-3 text-sm font-semibold text-white shadow-lg backdrop-blur transition hover:bg-black/80"
       aria-pressed={!isMuted}
       aria-label={isMuted ? "Enable sound" : "Mute sound"}
