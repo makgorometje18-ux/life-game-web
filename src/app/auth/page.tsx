@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { GameLogo } from "@/components/game-logo";
 import { supabase } from "@/lib/supabase";
 
 export default function AuthPage() {
@@ -9,6 +10,17 @@ export default function AuthPage() {
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showLogoLoader, setShowLogoLoader] = useState(false);
+
+  useEffect(() => {
+    if (!showLogoLoader) return;
+
+    const timer = window.setTimeout(() => {
+      window.location.href = "/game";
+    }, 3600);
+
+    return () => window.clearTimeout(timer);
+  }, [showLogoLoader]);
 
   const validateInputs = () => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -103,8 +115,8 @@ export default function AuthPage() {
       }
 
       setIsError(false);
-      setMessage("Login successful.");
-      window.location.href = "/online";
+      setMessage("Login successful. Opening your game...");
+      setShowLogoLoader(true);
     } catch (error) {
       console.error("Login failed", error);
       setIsError(true);
@@ -114,10 +126,34 @@ export default function AuthPage() {
     }
   };
 
+  if (showLogoLoader) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#2f1b12_0%,#100c08_50%,#020202_100%)] px-6 text-white">
+        <div className="flex w-full max-w-md flex-col items-center text-center">
+          <div className="logo-loader-shell">
+            <div className="game-logo-glow" aria-hidden="true" />
+            <GameLogo className="game-logo-loader relative z-10 h-52 w-52 text-red-500" />
+          </div>
+          <p className="mt-8 text-sm uppercase tracking-[0.45em] text-stone-300">
+            Loading<span className="loading-dots" aria-hidden="true" />
+          </p>
+          <h1 className="mt-3 text-4xl font-black tracking-[0.08em] text-white">Life Game Africa</h1>
+          <p className="mt-4 text-base leading-7 text-stone-300">
+            Your logo is changing from red to orange to green three times before the game opens.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
-      <div className="w-full max-w-md bg-zinc-900 rounded-2xl p-8 shadow-lg">
-        <h1 className="text-3xl font-bold text-center mb-6">Login / Sign Up</h1>
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#2b1d12_0%,#090909_52%,#000000_100%)] px-6 text-white">
+      <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-zinc-900/90 p-8 shadow-2xl backdrop-blur">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <GameLogo className="h-28 w-28 text-white" />
+          <h1 className="mt-4 text-3xl font-bold">Login / Sign Up</h1>
+          <p className="mt-2 text-sm text-stone-300">Enter your details and open your story.</p>
+        </div>
 
         <div className="space-y-4">
           <input

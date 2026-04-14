@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { GameLogo } from "@/components/game-logo";
 import { supabase } from "@/lib/supabase";
 
 type PlayerUpdates = {
@@ -393,7 +394,10 @@ export default function GamePage() {
 
               <div>
                 <p className="text-sm uppercase tracking-[0.35em] text-stone-400">Life Simulator</p>
-                <h1 className="mt-2 text-4xl font-black tracking-tight text-white md:text-6xl">{name}&apos;s Story</h1>
+                <div className="mt-3 flex items-center gap-4">
+                  <GameLogo className="hidden h-16 w-16 text-white md:block" />
+                  <h1 className="text-4xl font-black tracking-tight text-white md:text-6xl">{name}&apos;s Story</h1>
+                </div>
                 <p className="mt-3 max-w-2xl text-base leading-7 text-stone-300 md:text-lg">
                   Build wealth, climb career levels, buy property, build a family, avoid prison, and leave a legacy.
                 </p>
