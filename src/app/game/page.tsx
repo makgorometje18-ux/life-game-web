@@ -245,7 +245,14 @@ export default function GamePage() {
     pushHistory(message);
   };
 
-  const study = async () => (money < 120 ? sayNo("You cannot afford tuition right now.") : applyYear("You invest in education.", { money: -120, health: -3, happiness: -2, education: age < 18 ? 14 : 10 }));
+  const study = async () => {
+    if (money < 120) {
+      sayNo("You cannot afford tuition right now.");
+      return;
+    }
+
+    window.location.href = "/game/education";
+  };
   const rest = async () => applyYear("You choose peace, healing, and time for yourself.", { money: -80, health: 15, happiness: 14 });
   const doctor = async () => (money < 180 ? sayNo("You cannot afford treatment yet.") : applyYear("You pay for treatment and recovery.", { money: -180, health: 20, happiness: 4 }));
 
