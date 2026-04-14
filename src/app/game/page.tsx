@@ -50,7 +50,6 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const lifeStage = (age: number) =>
   age < 13 ? "Childhood" : age < 20 ? "Teen Years" : age < 36 ? "Young Adult" : age < 61 ? "Prime Years" : "Legacy Era";
 const meterTone = (value: number) => (value >= 75 ? "bg-emerald-400" : value >= 45 ? "bg-amber-400" : "bg-rose-500");
-const spouses = ["Amahle", "Lerato", "Nia", "Amina", "Neo", "Zola", "Tariq", "Maya"];
 const incomeFor = (career: Career, education: number) =>
   ({ Unemployed: 280, Worker: 550, "Skilled Pro": 950, Manager: 1500, Executive: 2400 }[career] ?? 280) +
   (education >= 80 ? 300 : education >= 50 ? 150 : 0);
@@ -119,6 +118,8 @@ export default function GamePage() {
       }
 
       const intro = `${data.name || "Player"} is ${data.age ?? 18} years old in ${data.country || "Unknown"}. Your next choice shapes everything.`;
+      const flashKey = `life-game-flash:${user.id}`;
+      const flashMessage = window.sessionStorage.getItem(flashKey);
 
       setName(data.name || "Player");
       setCountry(data.country || "Unknown");
@@ -128,8 +129,9 @@ export default function GamePage() {
       setHappiness(data.happiness ?? 100);
       setEducation(data.education ?? 0);
       setProgress(extra);
-      setEventMessage(intro);
-      setHistory([intro, "Your story begins. Build a life you can be proud of."]);
+      setEventMessage(flashMessage || intro);
+      setHistory(flashMessage ? [flashMessage, intro, "Your story begins. Build a life you can be proud of."] : [intro, "Your story begins. Build a life you can be proud of."]);
+      if (flashMessage) window.sessionStorage.removeItem(flashKey);
       setLoading(false);
     } catch (error) {
       console.error("Failed to load player", error);
@@ -287,8 +289,7 @@ export default function GamePage() {
     if (progress.spouse) return sayNo(`You are already married to ${progress.spouse}.`);
     if (age < 22) return sayNo("You want more time before settling down.");
     if (money < 600 || happiness < 55) return sayNo("Marriage feels out of reach. Build more stability first.");
-    const next = { ...progress, spouse: spouses[Math.floor(Math.random() * spouses.length)] };
-    await applyYear(`You marry ${next.spouse} and begin a new chapter together.`, { money: -500, happiness: 18 }, next);
+    window.location.href = "/game/partner";
   };
 
   const children = async () => {
