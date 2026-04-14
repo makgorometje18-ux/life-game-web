@@ -307,6 +307,18 @@ export default function GamePage() {
 
   const serveSentence = async () => applyYear("You try to survive prison life.", {}, progress, true);
 
+  const logout = async () => {
+    if (playerId) {
+      await supabase
+        .from("players")
+        .update({ is_online: false, updated_at: new Date().toISOString() })
+        .eq("id", playerId);
+    }
+
+    await supabase.auth.signOut();
+    window.location.href = "/";
+  };
+
   const restart = async () => {
     if (playerId) {
       window.localStorage.removeItem(`life-progress:${playerId}`);
@@ -477,8 +489,11 @@ export default function GamePage() {
 
             <section className="rounded-[2rem] border border-white/10 bg-black/35 p-6 shadow-xl backdrop-blur">
               <p className="text-sm uppercase tracking-[0.25em] text-stone-400">Session Control</p>
-              <h2 className="mt-2 text-3xl font-bold text-white">Start over</h2>
-              <button onClick={() => void restart()} className="mt-5 w-full rounded-2xl bg-rose-500 px-4 py-3 font-semibold text-white transition hover:bg-rose-400">Restart Life</button>
+              <h2 className="mt-2 text-3xl font-bold text-white">Leave or restart</h2>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <button onClick={() => void logout()} className="w-full rounded-2xl bg-white/10 px-4 py-3 font-semibold text-white transition hover:bg-white/20">Logout</button>
+                <button onClick={() => void restart()} className="w-full rounded-2xl bg-rose-500 px-4 py-3 font-semibold text-white transition hover:bg-rose-400">Restart Life</button>
+              </div>
             </section>
           </div>
         </section>

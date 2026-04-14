@@ -17,7 +17,7 @@ export default function AuthPage() {
 
     const timer = window.setTimeout(() => {
       window.location.href = "/game";
-    }, 3600);
+    }, 6600);
 
     return () => window.clearTimeout(timer);
   }, [showLogoLoader]);

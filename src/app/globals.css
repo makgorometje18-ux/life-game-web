@@ -52,7 +52,7 @@ body {
 }
 
 .game-logo-loader {
-  animation: game-logo-cycle 1.2s ease-in-out 3;
+  animation: game-logo-cycle 2.2s ease-in-out 3;
   filter: brightness(0) saturate(100%) invert(17%) sepia(90%) saturate(5839%)
     hue-rotate(353deg) brightness(98%) contrast(91%);
   transform-origin: center;
@@ -68,15 +68,15 @@ body {
 .game-logo-glow {
   position: absolute;
   inset: 50%;
-  width: 13rem;
-  height: 13rem;
+  width: 11rem;
+  height: 11rem;
   border-radius: 9999px;
   transform: translate(-50%, -50%);
   background:
-    radial-gradient(circle, rgba(239, 68, 68, 0.38) 0%, rgba(249, 115, 22, 0.24) 38%, rgba(34, 197, 94, 0.14) 62%, transparent 78%);
-  filter: blur(20px);
-  opacity: 0.95;
-  animation: game-logo-glow-cycle 1.2s ease-in-out 3;
+    radial-gradient(circle, rgba(239, 68, 68, 0.18) 0%, rgba(249, 115, 22, 0.1) 40%, rgba(34, 197, 94, 0.06) 62%, transparent 78%);
+  filter: blur(26px);
+  opacity: 0.58;
+  animation: game-logo-glow-cycle 2.2s ease-in-out 3;
   pointer-events: none;
 }
 
@@ -84,25 +84,25 @@ body {
   0%,
   8% {
     background:
-      radial-gradient(circle, rgba(239, 68, 68, 0.42) 0%, rgba(239, 68, 68, 0.24) 42%, transparent 76%);
-    transform: translate(-50%, -50%) scale(0.92);
+      radial-gradient(circle, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.12) 42%, transparent 76%);
+    transform: translate(-50%, -50%) scale(0.96);
   }
   33%,
   41% {
     background:
-      radial-gradient(circle, rgba(249, 115, 22, 0.42) 0%, rgba(249, 115, 22, 0.24) 42%, transparent 76%);
+      radial-gradient(circle, rgba(249, 115, 22, 0.2) 0%, rgba(249, 115, 22, 0.12) 42%, transparent 76%);
     transform: translate(-50%, -50%) scale(1);
   }
   66%,
   74% {
     background:
-      radial-gradient(circle, rgba(34, 197, 94, 0.42) 0%, rgba(34, 197, 94, 0.22) 42%, transparent 76%);
-    transform: translate(-50%, -50%) scale(1.08);
+      radial-gradient(circle, rgba(34, 197, 94, 0.18) 0%, rgba(34, 197, 94, 0.1) 42%, transparent 76%);
+    transform: translate(-50%, -50%) scale(1.03);
   }
   100% {
     background:
-      radial-gradient(circle, rgba(239, 68, 68, 0.42) 0%, rgba(239, 68, 68, 0.24) 42%, transparent 76%);
-    transform: translate(-50%, -50%) scale(0.92);
+      radial-gradient(circle, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.12) 42%, transparent 76%);
+    transform: translate(-50%, -50%) scale(0.96);
   }
 }
 
@@ -125,7 +125,7 @@ body {
 
 .loading-dots::after {
   display: inline-block;
-  animation: loading-dots-cycle 1.2s steps(1, end) 3;
+  animation: loading-dots-cycle 2.2s steps(1, end) 3;
   content: "";
 }
 
