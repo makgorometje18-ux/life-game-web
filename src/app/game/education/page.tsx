@@ -295,6 +295,15 @@ export default function EducationScenePage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#1d2128_0%,#0b0c0f_40%,#030303_100%)] px-4 py-6 text-white md:px-8">
+      <button
+        type="button"
+        onClick={() => {
+          window.location.href = "/game";
+        }}
+        className="fixed bottom-4 left-4 z-[70] rounded-full border border-white/15 bg-black/75 px-4 py-3 text-sm font-semibold text-white shadow-xl backdrop-blur transition hover:bg-black/85"
+      >
+        Back
+      </button>
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-black/35 shadow-2xl backdrop-blur">
           <div className="grid gap-6 p-6 lg:grid-cols-[1.15fr_0.85fr] lg:p-8">
