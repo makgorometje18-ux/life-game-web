@@ -48,7 +48,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const capeTownQuery = encodeURIComponent("Cape Town CBD, Cape Town, South Africa");
 const mapsEmbedKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY;
 const mapSrc = mapsEmbedKey
-  ? `https://www.google.com/maps/embed/v1/place?key=${mapsEmbedKey}&q=${capeTownQuery}&zoom=15`
+  ? `https://www.google.com/maps/embed/v1/place?key=${mapsEmbedKey}&q=${capeTownQuery}&zoom=15&maptype=satellite`
   : null;
 
 const sceneCharacters = [
@@ -368,11 +368,11 @@ export default function EducationScenePage() {
                   src={mapSrc}
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
-                  className="h-[500px] w-full border-0"
+                  className="h-[320px] w-full border-0 sm:h-[380px] lg:h-[500px]"
                   allowFullScreen
                 />
               ) : (
-                <div className="relative h-[500px] overflow-hidden bg-[linear-gradient(135deg,#1f2d3d_0%,#182029_35%,#0e1319_100%)]">
+                <div className="relative h-[320px] overflow-hidden bg-[linear-gradient(135deg,#1f2d3d_0%,#182029_35%,#0e1319_100%)] sm:h-[380px] lg:h-[500px]">
                   <div className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] [background-size:54px_54px]" />
                   <div className="absolute left-[10%] top-[14%] h-40 w-22 rounded-[2rem] bg-white/10" />
                   <div className="absolute left-[28%] top-[18%] h-56 w-28 rounded-[2rem] bg-white/7" />
@@ -392,7 +392,7 @@ export default function EducationScenePage() {
 
               <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(2,6,23,0.75),rgba(2,6,23,0.18)_35%,rgba(2,6,23,0.05)_60%)]" />
 
-              <div className="absolute inset-x-5 bottom-5 grid gap-3 md:grid-cols-3">
+              <div className="absolute inset-x-3 bottom-3 hidden gap-3 md:grid-cols-3 lg:inset-x-5 lg:bottom-5 lg:grid">
                 {zones.map((zone) => {
                   const isActive = zone.id === activeZoneId;
 
@@ -415,6 +415,36 @@ export default function EducationScenePage() {
                   );
                 })}
               </div>
+            </div>
+
+            <div className="grid gap-3 border-t border-white/10 bg-black/40 p-3 md:hidden">
+              {zones.map((zone) => {
+                const isActive = zone.id === activeZoneId;
+
+                return (
+                  <button
+                    key={zone.id}
+                    type="button"
+                    onClick={() => setActiveZoneId(zone.id)}
+                    className={`rounded-[1.35rem] border px-4 py-3 text-left transition ${
+                      isActive
+                        ? "border-amber-300/70 bg-amber-300/18 shadow-[0_0_0_1px_rgba(252,211,77,0.2)]"
+                        : "border-white/10 bg-white/6"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-bold text-white">{zone.label}</p>
+                        <p className="mt-1 text-[10px] uppercase tracking-[0.24em] text-stone-300">{zone.role}</p>
+                      </div>
+                      <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-xs font-semibold text-amber-200">
+                        R{zone.cost}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-stone-200">{zone.description}</p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
