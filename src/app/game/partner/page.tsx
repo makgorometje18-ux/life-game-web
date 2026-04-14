@@ -170,7 +170,7 @@ export default function PartnerScenePage() {
   const currentCandidate = candidates[stackIndex] ?? null;
   const canUseDating = useMemo(() => {
     if (!player) return false;
-    return (player.age ?? 18) >= 22 && (player.money ?? 0) >= 600 && (player.happiness ?? 0) >= 55 && !progress.spouse;
+    return (player.age ?? 18) >= 18 && (player.money ?? 0) >= 370 && (player.happiness ?? 0) >= 45 && !progress.spouse;
   }, [player, progress.spouse]);
 
   const advanceStack = () => {
@@ -283,7 +283,7 @@ export default function PartnerScenePage() {
           <p className="text-sm uppercase tracking-[0.35em] text-amber-200">Partner Finder Locked</p>
           <h1 className="mt-4 text-4xl font-black">Build more stability first</h1>
           <p className="mt-4 text-lg leading-8 text-stone-300">
-            To use this feature like a real dating app, your character must be at least 22 years old, have R600+, happiness above 55, and not already be married.
+            To use this feature like a real dating app, your character must be at least 18 years old, have R370+, happiness above 45, and not already be married.
           </p>
           <button
             onClick={() => {

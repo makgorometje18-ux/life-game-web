@@ -287,8 +287,8 @@ export default function GamePage() {
 
   const marry = async () => {
     if (progress.spouse) return sayNo(`You are already married to ${progress.spouse}.`);
-    if (age < 22) return sayNo("You want more time before settling down.");
-    if (money < 600 || happiness < 55) return sayNo("Marriage feels out of reach. Build more stability first.");
+    if (age < 18) return sayNo("You want more time before settling down.");
+    if (money < 370 || happiness < 45) return sayNo("Dating feels out of reach. Build a little more confidence and money first.");
     window.location.href = "/game/partner";
   };
 
