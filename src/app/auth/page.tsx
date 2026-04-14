@@ -53,7 +53,12 @@ export default function AuthPage() {
     setMessage("Creating account...");
 
     try {
-      const { error } = await supabase.auth.signUp(credentials);
+      const { data, error } = await supabase.auth.signUp({
+        ...credentials,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth`,
+        },
+      });
 
       if (error) {
         setIsError(true);
@@ -62,7 +67,11 @@ export default function AuthPage() {
       }
 
       setIsError(false);
-      setMessage("Account created. You can now log in.");
+      setMessage(
+        data.user?.identities?.length
+          ? "Account created. Check your email and confirm it before logging in."
+          : "This email may already be registered. Try logging in or reset the password if needed."
+      );
     } catch (error) {
       console.error("Sign up failed", error);
       setIsError(true);
@@ -91,6 +100,13 @@ export default function AuthPage() {
       }
 
       const user = data.user;
+
+      if (!user.email_confirmed_at) {
+        await supabase.auth.signOut();
+        setIsError(true);
+        setMessage("Please confirm your email address first. Check your inbox, then log in again.");
+        return;
+      }
 
       const { error: playerError } = await supabase
         .from("players")
@@ -126,6 +142,45 @@ export default function AuthPage() {
     }
   };
 
+  const resendVerification = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setIsError(true);
+      setMessage("Enter your email address first so we can resend verification.");
+      return;
+    }
+
+    setIsLoading(true);
+    setIsError(false);
+    setMessage("Sending verification email...");
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: normalizedEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth`,
+        },
+      });
+
+      if (error) {
+        setIsError(true);
+        setMessage(error.message);
+        return;
+      }
+
+      setIsError(false);
+      setMessage("Verification email sent. Check your inbox and spam folder, then log in again.");
+    } catch (error) {
+      console.error("Resend verification failed", error);
+      setIsError(true);
+      setMessage("Could not resend verification email right now. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (showLogoLoader) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#2f1b12_0%,#100c08_50%,#020202_100%)] px-6 text-white">
@@ -152,7 +207,7 @@ export default function AuthPage() {
         <div className="mb-6 flex flex-col items-center text-center">
           <GameLogo className="h-28 w-28 text-white" />
           <h1 className="mt-4 text-3xl font-bold">Login / Sign Up</h1>
-          <p className="mt-2 text-sm text-stone-300">Enter your details and open your story.</p>
+          <p className="mt-2 text-sm text-stone-300">Use a real email address. New accounts must confirm email before they can open the game.</p>
         </div>
 
         <div className="space-y-4">
@@ -195,6 +250,15 @@ export default function AuthPage() {
             className="w-full bg-white text-black py-3 rounded-xl font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
           >
             Login
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void resendVerification()}
+            disabled={isLoading}
+            className="w-full rounded-xl border border-white/20 bg-white/5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Resend Verification Email
           </button>
         </div>
 
