@@ -100,31 +100,41 @@ export default function AuthPage() {
       }
 
       const user = data.user;
+      const normalizedEmail = user.email?.trim().toLowerCase() || "";
       const playerPayload = {
         id: user.id,
-        email: user.email,
-        name: user.email?.split("@")[0] || "Player",
+        email: normalizedEmail,
+        name: normalizedEmail.split("@")[0] || "Player",
         age: 18,
         country: "South Africa",
         is_online: true,
         updated_at: new Date().toISOString(),
       };
 
-      let { error: playerError } = await supabase.from("players").upsert(playerPayload, { onConflict: "email" });
+      let playerError: { message: string } | null = null;
 
-      if (playerError && playerError.message.toLowerCase().includes("players_email_key") && user.email) {
+      if (normalizedEmail) {
         const recoverExisting = await supabase
           .from("players")
           .update(playerPayload)
-          .eq("email", user.email);
+          .eq("email", normalizedEmail)
+          .select("id");
 
         playerError = recoverExisting.error ?? null;
+
+        if (!playerError && (!recoverExisting.data || recoverExisting.data.length === 0)) {
+          const createFresh = await supabase.from("players").upsert(playerPayload, { onConflict: "id" });
+          playerError = createFresh.error ?? null;
+        }
+      } else {
+        const createFresh = await supabase.from("players").upsert(playerPayload, { onConflict: "id" });
+        playerError = createFresh.error ?? null;
       }
 
       if (playerError) {
         console.error("Player sync failed", playerError);
         setIsError(true);
-        setMessage(`Login worked, but player setup failed: ${playerError.message}`);
+        setMessage(`Login worked, but player setup failed: ${playerError.message}. If this account existed before, run the player recovery SQL I mentioned.`);
         return;
       }
 
