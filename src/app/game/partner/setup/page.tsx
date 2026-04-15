@@ -10,9 +10,10 @@ type PlayerRecord = {
   name: string | null;
   age: number | null;
   country: string | null;
+  email?: string | null;
 };
 
-type SetupStep = "welcome" | "verify" | "location" | "profile";
+type SetupStep = "welcome" | "contact" | "verify" | "location" | "profile";
 type ContactMethod = "google" | "phone" | "email";
 
 type ExistingProfile = {
@@ -37,7 +38,6 @@ type ExistingProfile = {
   is_active: boolean;
 };
 
-const codeKeyFor = (playerId: string) => `dating-code:${playerId}`;
 const channelLabels: Record<ContactMethod, string> = {
   google: "Google",
   phone: "Phone Number",
@@ -66,7 +66,6 @@ export default function PartnerSetupPage() {
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [photoUrl, setPhotoUrl] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
-  const [sentCode, setSentCode] = useState("");
   const [contactVerified, setContactVerified] = useState(false);
   const [locationLabel, setLocationLabel] = useState("");
   const [latitude, setLatitude] = useState<number | null>(null);
@@ -146,60 +145,115 @@ export default function PartnerSetupPage() {
     void loadSetup();
   }, []);
 
-  const sendVerificationCode = async (nextMethod: ContactMethod) => {
-    if (!player) return;
+  const continueWithMethod = (nextMethod: ContactMethod) => {
+    setMethod(nextMethod);
+    setError("");
+    setMessage("");
+    if (nextMethod === "google") {
+      setContactValue((current) => current || "");
+    } else if (nextMethod === "email") {
+      setContactValue((current) => current || "");
+    } else {
+      setContactValue("");
+    }
+    setStep("contact");
+  };
 
-    const resolvedContact =
-      nextMethod === "phone"
-        ? contactValue.trim()
-        : nextMethod === "google"
-          ? contactValue.trim() || displayName.trim() || "Google account"
-          : contactValue.trim();
+  const sendVerificationCode = async () => {
+    if (!player) return;
+    const resolvedContact = contactValue.trim();
 
     if (!resolvedContact) {
-      setError(nextMethod === "phone" ? "Enter your phone number first." : "We could not find your email address.");
+      setError(method === "phone" ? "Enter your phone number first." : "Enter your email address first.");
       return;
     }
 
-    const generated = String(Math.floor(100000 + Math.random() * 900000));
-    window.sessionStorage.setItem(codeKeyFor(player.id), generated);
-    setSentCode(generated);
-    setVerificationCode("");
-    setMethod(nextMethod);
-    setContactValue(resolvedContact);
+    setSaving(true);
     setError("");
-    setMessage(`A verification code was prepared for ${resolvedContact}.`);
-    setStep("verify");
+    setMessage("");
 
-    if ("Notification" in window) {
-      if (Notification.permission === "granted") {
-        new Notification("Life Game Partner Finder", {
-          body: `Your ${channelLabels[nextMethod]} verification code is ${generated}.`,
+    try {
+      if (method === "phone") {
+        const { error: otpError } = await supabase.auth.signInWithOtp({
+          phone: resolvedContact,
         });
-      } else if (Notification.permission === "default") {
-        const permission = await Notification.requestPermission();
-        if (permission === "granted") {
-          new Notification("Life Game Partner Finder", {
-            body: `Your ${channelLabels[nextMethod]} verification code is ${generated}.`,
-          });
+
+        if (otpError) {
+          setError(
+            otpError.message ||
+              "Phone verification is not enabled yet in Supabase. Turn on Phone Auth and your SMS provider first."
+          );
+          setSaving(false);
+          return;
+        }
+      } else {
+        const { error: otpError } = await supabase.auth.signInWithOtp({
+          email: resolvedContact,
+          options: {
+            shouldCreateUser: false,
+          },
+        });
+
+        if (otpError) {
+          setError(
+            otpError.message ||
+              "Email OTP could not be sent. Make sure Email OTP is enabled in Supabase and use the email tied to this player account."
+          );
+          setSaving(false);
+          return;
         }
       }
+
+      setVerificationCode("");
+      setMessage(`A verification code was sent to ${resolvedContact}.`);
+      setStep("verify");
+    } catch (sendError) {
+      console.error("Partner verification send failed", sendError);
+      setError("Could not send the verification code right now.");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const verifyCurrentCode = () => {
+  const verifyCurrentCode = async () => {
     if (!player) return;
-    const storedCode = window.sessionStorage.getItem(codeKeyFor(player.id));
-    if (!storedCode || verificationCode.trim() !== storedCode) {
-      setError("That verification code does not match yet.");
+    if (verificationCode.trim().length !== 6) {
+      setError("Enter the full 6-digit code first.");
       return;
     }
 
-    setContactVerified(true);
-    window.sessionStorage.removeItem(codeKeyFor(player.id));
-    setMessage(`${channelLabels[method]} verification completed.`);
+    setSaving(true);
     setError("");
-    setStep("location");
+
+    try {
+      const verification =
+        method === "phone"
+          ? await supabase.auth.verifyOtp({
+              phone: contactValue.trim(),
+              token: verificationCode.trim(),
+              type: "sms",
+            })
+          : await supabase.auth.verifyOtp({
+              email: contactValue.trim(),
+              token: verificationCode.trim(),
+              type: "email",
+            });
+
+      if (verification.error) {
+        setError(verification.error.message || "That verification code does not match yet.");
+        setSaving(false);
+        return;
+      }
+
+      setContactVerified(true);
+      setMessage(`${channelLabels[method]} verification completed.`);
+      setStep("location");
+    } catch (verifyError) {
+      console.error("Partner verification check failed", verifyError);
+      setError("Could not verify the code right now.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const allowLocation = () => {
@@ -349,7 +403,8 @@ export default function PartnerSetupPage() {
             window.location.href = "/game";
             return;
           }
-          if (step === "verify") setStep("welcome");
+          if (step === "contact") setStep("welcome");
+          if (step === "verify") setStep("contact");
           if (step === "location") setStep("verify");
           if (step === "profile") setStep("location");
         }}
@@ -374,37 +429,52 @@ export default function PartnerSetupPage() {
 
               <div className="mt-10 space-y-4">
                 <button
-                  onClick={() => void sendVerificationCode("google")}
+                  onClick={() => continueWithMethod("google")}
                   className="flex w-full items-center justify-center gap-3 rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100"
                 >
                   <span className="text-2xl">G</span>
                   Continue with Google
                 </button>
-                <div className="rounded-[2rem] border border-white/10 bg-white/10 p-4">
-                  <label className="text-xs uppercase tracking-[0.35em] text-white/70">Phone number</label>
-                  <input
-                    value={method === "phone" ? contactValue : ""}
-                    onChange={(event) => {
-                      setMethod("phone");
-                      setContactValue(event.target.value);
-                    }}
-                    placeholder="+27 81 234 5678"
-                    className="mt-3 w-full rounded-2xl bg-white px-4 py-3 text-black outline-none"
-                  />
-                  <button
-                    onClick={() => void sendVerificationCode("phone")}
-                    className="mt-3 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100"
-                  >
-                    Continue with Phone Number
-                  </button>
-                </div>
                 <button
-                  onClick={() => void sendVerificationCode("email")}
+                  onClick={() => continueWithMethod("phone")}
+                  className="w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100"
+                >
+                  Continue with Phone Number
+                </button>
+                <button
+                  onClick={() => continueWithMethod("email")}
                   className="w-full rounded-full border border-white/20 bg-black/20 px-5 py-4 text-lg font-semibold text-white transition hover:bg-black/30"
                 >
                   Continue with Email
                 </button>
               </div>
+            </>
+          ) : null}
+
+          {step === "contact" ? (
+            <>
+              <p className="text-sm uppercase tracking-[0.35em] text-white/60">{channelLabels[method]}</p>
+              <h1 className="mt-4 text-5xl font-black tracking-tight">Enter your details</h1>
+              <p className="mt-4 text-sm leading-7 text-white/70">
+                {method === "phone"
+                  ? "Enter your real phone number so we can send a verification code."
+                  : method === "google"
+                    ? "Enter your Google email so we can send your verification code."
+                    : "Enter your email address so we can send your verification code."}
+              </p>
+              <input
+                value={contactValue}
+                onChange={(event) => setContactValue(event.target.value)}
+                placeholder={method === "phone" ? "0682074981 or +27..." : "name@gmail.com"}
+                className="mt-8 w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
+              />
+              <button
+                onClick={() => void sendVerificationCode()}
+                disabled={saving}
+                className="mt-8 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100 disabled:opacity-60"
+              >
+                {saving ? "Sending..." : "Continue"}
+              </button>
             </>
           ) : null}
 
@@ -421,18 +491,18 @@ export default function PartnerSetupPage() {
                 className="mt-8 w-full border-b-2 border-pink-400 bg-transparent px-1 py-4 text-center text-5xl font-black tracking-[0.6em] outline-none"
               />
               <p className="mt-5 text-sm text-white/70">Didn&apos;t get anything? No worries, let&apos;s try again.</p>
-              <button onClick={() => void sendVerificationCode(method)} className="mt-2 text-sm font-semibold text-sky-300">
+              <button onClick={() => void sendVerificationCode()} className="mt-2 text-sm font-semibold text-sky-300">
                 Resend
               </button>
               <div className="mt-6 rounded-2xl border border-white/10 bg-white/8 p-4 text-sm text-white/80">
                 Current verification method: {channelLabels[method]}
-                {sentCode ? <p className="mt-2 text-white/60">Test code for this build: {sentCode}</p> : null}
               </div>
               <button
-                onClick={verifyCurrentCode}
-                className="mt-8 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100"
+                onClick={() => void verifyCurrentCode()}
+                disabled={saving}
+                className="mt-8 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100 disabled:opacity-60"
               >
-                Next
+                {saving ? "Checking..." : "Next"}
               </button>
             </>
           ) : null}
