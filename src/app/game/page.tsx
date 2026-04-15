@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { GameLogo } from "@/components/game-logo";
+import { requestNotificationPermission, showSystemNotification } from "@/lib/browser-notifications";
 import { supabase } from "@/lib/supabase";
 
 type PlayerUpdates = {
@@ -145,6 +146,40 @@ export default function GamePage() {
     const timer = window.setTimeout(() => void loadPlayer(), 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (Notification.permission === "default") {
+      void requestNotificationPermission();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !playerId || Notification.permission !== "granted") return;
+
+    let reminderTimer: number | null = null;
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        reminderTimer = window.setTimeout(() => {
+          void showSystemNotification({
+            title: `${name}'s story is waiting`,
+            body: `You left off at age ${age}. Come back and continue your character's life.`,
+            url: "/game",
+            tag: `life-reminder-${playerId}`,
+          });
+        }, 90000);
+      } else if (reminderTimer) {
+        window.clearTimeout(reminderTimer);
+        reminderTimer = null;
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (reminderTimer) window.clearTimeout(reminderTimer);
+    };
+  }, [age, name, playerId]);
 
   const savePlayer = async (updates: PlayerUpdates) => {
     if (!playerId) return;

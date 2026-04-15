@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useEffect, useState } from "react";
 import { GameLogo } from "@/components/game-logo";
+import { requestNotificationPermission } from "@/lib/browser-notifications";
 import { supabase } from "@/lib/supabase";
 
 type PlayerRecord = {
@@ -313,6 +314,10 @@ export default function PartnerSetupPage() {
         setError("Could not save dating profile. Run the latest SQL in supabase/dating_schema.sql first.");
         setSaving(false);
         return;
+      }
+
+      if (typeof window !== "undefined" && Notification.permission === "default") {
+        await requestNotificationPermission();
       }
 
       setPhotoUrl(uploadResult.primary || "");

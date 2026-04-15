@@ -1,0 +1,21 @@
+{
+  "name": "Life Game Africa",
+  "short_name": "Life Game",
+  "description": "Build your character, live your choices, and shape your story.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090a0f",
+  "theme_color": "#111318",
+  "icons": [
+    {
+      "src": "/game-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/game-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { GameLogo } from "@/components/game-logo";
+import { requestNotificationPermission, showSystemNotification } from "@/lib/browser-notifications";
 import { supabase } from "@/lib/supabase";
 
 type Progress = {
@@ -75,6 +76,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const schemaHelp = "Dating tables are missing or outdated. Run the latest SQL in supabase/dating_schema.sql, then try again.";
 const sortPair = (first: string, second: string) => (first < second ? [first, second] : [second, first]);
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
+const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
 
 export default function PartnerScenePage() {
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
@@ -230,6 +232,56 @@ export default function PartnerScenePage() {
     void loadScene();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab === "swipe" || tab === "explore" || tab === "likes" || tab === "chat" || tab === "profile") {
+      setActiveTab(tab);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !player) return;
+
+    if (Notification.permission === "default") {
+      void requestNotificationPermission();
+    }
+
+    const interval = window.setInterval(() => {
+      void loadScene(activeMatchId || undefined);
+    }, 30000);
+
+    return () => window.clearInterval(interval);
+  }, [activeMatchId, player]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !player || Notification.permission !== "granted") return;
+
+    let reminderTimer: number | null = null;
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        reminderTimer = window.setTimeout(() => {
+          void showSystemNotification({
+            title: "Your matches are waiting",
+            body: matches.length ? "You have chats and matches waiting in the partner finder." : "Finish your profile and keep swiping when you come back.",
+            url: "/game/partner",
+            tag: `dating-reminder-${player.id}`,
+          });
+        }, 60000);
+      } else if (reminderTimer) {
+        window.clearTimeout(reminderTimer);
+        reminderTimer = null;
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (reminderTimer) window.clearTimeout(reminderTimer);
+    };
+  }, [matches.length, player]);
+
   const currentProfile = useMemo(() => {
     const available = profiles.filter((profile) => !passedIds.includes(profile.user_id));
     return available[stackIndex] ?? null;
@@ -258,6 +310,67 @@ export default function PartnerScenePage() {
       palette: goalPalette[index % goalPalette.length],
     }));
   }, [profiles]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !player || Notification.permission !== "granted") return;
+
+    const summary = {
+      likedMeCount: likedMeIds.length,
+      matchCount: matches.length,
+      messageCount: messages.length,
+      lastMessageMatchId: messages[messages.length - 1]?.match_id || "",
+    };
+
+    const stored = window.localStorage.getItem(summaryKey(player.id));
+    if (!stored) {
+      window.localStorage.setItem(summaryKey(player.id), JSON.stringify(summary));
+      return;
+    }
+
+    try {
+      const previous = JSON.parse(stored) as typeof summary;
+
+      if (document.visibilityState === "hidden") {
+        if (summary.likedMeCount > previous.likedMeCount) {
+          void showSystemNotification({
+            title: "New like waiting",
+            body: "Someone new liked your profile. Open the app to see who it is.",
+            url: "/game/partner?tab=likes",
+            tag: `dating-like-${player.id}`,
+          });
+        }
+
+        if (summary.matchCount > previous.matchCount) {
+          const newestMatch = matches[0];
+          const newestProfile = newestMatch ? profileMap[newestMatch.user_a === player.id ? newestMatch.user_b : newestMatch.user_a] : null;
+          void showSystemNotification({
+            title: "It's a new match",
+            body: newestProfile ? `${newestProfile.display_name} matched with you. Start chatting now.` : "You have a new mutual match waiting.",
+            url: "/game/partner?tab=chat",
+            tag: `dating-match-${player.id}`,
+          });
+        }
+
+        if (summary.messageCount > previous.messageCount) {
+          const latestMessage = messages[messages.length - 1];
+          const latestMatch = latestMessage ? matches.find((match) => match.id === latestMessage.match_id) : null;
+          const latestProfile = latestMatch ? profileMap[latestMatch.user_a === player.id ? latestMatch.user_b : latestMatch.user_a] : null;
+          if (latestMessage?.sender_id !== player.id) {
+            void showSystemNotification({
+              title: latestProfile ? `${latestProfile.display_name} sent a message` : "New message",
+              body: latestMessage?.body || "Open the inbox to reply.",
+              url: "/game/partner?tab=chat",
+              tag: `dating-message-${player.id}`,
+            });
+          }
+        }
+      }
+    } catch {
+      // Ignore bad local notification state and reset below.
+    }
+
+    window.localStorage.setItem(summaryKey(player.id), JSON.stringify(summary));
+  }, [likedMeIds.length, matches, messages, player, profileMap]);
 
   const advanceStack = () => setStackIndex((value) => value + 1);
 
