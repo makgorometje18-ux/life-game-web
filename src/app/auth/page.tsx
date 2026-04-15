@@ -69,7 +69,7 @@ export default function AuthPage() {
       setIsError(false);
       setMessage(
         data.user?.identities?.length
-          ? "Account created. Check your email and confirm it before logging in."
+          ? "Account created. You can log in right away."
           : "This email may already be registered. Try logging in or reset the password if needed."
       );
     } catch (error) {
@@ -100,28 +100,26 @@ export default function AuthPage() {
       }
 
       const user = data.user;
+      const playerPayload = {
+        id: user.id,
+        email: user.email,
+        name: user.email?.split("@")[0] || "Player",
+        age: 18,
+        country: "South Africa",
+        is_online: true,
+        updated_at: new Date().toISOString(),
+      };
 
-      if (!user.email_confirmed_at) {
-        await supabase.auth.signOut();
-        setIsError(true);
-        setMessage("Please confirm your email address first. Check your inbox, then log in again.");
-        return;
+      let { error: playerError } = await supabase.from("players").upsert(playerPayload, { onConflict: "email" });
+
+      if (playerError && playerError.message.toLowerCase().includes("players_email_key") && user.email) {
+        const recoverExisting = await supabase
+          .from("players")
+          .update(playerPayload)
+          .eq("email", user.email);
+
+        playerError = recoverExisting.error ?? null;
       }
-
-      const { error: playerError } = await supabase
-        .from("players")
-        .upsert(
-          {
-            id: user.id,
-            email: user.email,
-            name: user.email?.split("@")[0] || "Player",
-            age: 18,
-            country: "South Africa",
-            is_online: true,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
 
       if (playerError) {
         console.error("Player sync failed", playerError);
@@ -207,7 +205,7 @@ export default function AuthPage() {
         <div className="mb-6 flex flex-col items-center text-center">
           <GameLogo className="h-28 w-28 text-white" />
           <h1 className="mt-4 text-3xl font-bold">Login / Sign Up</h1>
-          <p className="mt-2 text-sm text-stone-300">Use a real email address. New accounts must confirm email before they can open the game.</p>
+          <p className="mt-2 text-sm text-stone-300">Use a real email address so you can recover your account later.</p>
         </div>
 
         <div className="space-y-4">
@@ -256,7 +254,7 @@ export default function AuthPage() {
             type="button"
             onClick={() => void resendVerification()}
             disabled={isLoading}
-            className="w-full rounded-xl border border-white/20 bg-white/5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="hidden w-full rounded-xl border border-white/20 bg-white/5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             Resend Verification Email
           </button>
