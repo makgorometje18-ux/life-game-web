@@ -420,7 +420,24 @@ export default function GamePage() {
   }
 
   return (
-    <main className="relative min-h-screen bg-[radial-gradient(circle_at_top,#4a3419_0%,#120f08_45%,#090909_100%)] px-4 py-8 text-stone-100 md:px-8">
+    <main className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,#163f60_0%,#071624_42%,#03070d_100%)] px-4 py-8 text-stone-100 md:px-8">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="game-neon-map absolute inset-x-0 top-0 h-[78vh] opacity-90" />
+        <div className="game-map-grid absolute inset-0 opacity-35" />
+        <span className="game-map-pin left-[9%] top-[42%]" />
+        <span className="game-map-pin game-map-pin-lg left-[30%] top-[26%]" />
+        <span className="game-map-pin game-map-pin-xl left-[50%] top-[18%]" />
+        <span className="game-map-pin game-map-pin-lg left-[69%] top-[27%]" />
+        <span className="game-map-pin game-map-pin-xl left-[84%] top-[38%]" />
+        <span className="game-map-ripple left-[8%] top-[58%]" />
+        <span className="game-map-ripple game-map-ripple-lg left-[30%] top-[39%]" />
+        <span className="game-map-ripple game-map-ripple-xl left-[49%] top-[47%]" />
+        <span className="game-map-ripple game-map-ripple-lg left-[68%] top-[39%]" />
+        <span className="game-map-ripple game-map-ripple-xl left-[82%] top-[61%]" />
+      </div>
+
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(5,14,24,0.18)_0%,rgba(3,8,15,0.72)_54%,rgba(3,7,13,0.94)_100%)]" />
+
       {isGameOver ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl rounded-[2rem] border border-rose-300/20 bg-[#1b120d] p-8 shadow-2xl">
@@ -434,7 +451,7 @@ export default function GamePage() {
         </div>
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+      <div className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-6">
         <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-black/35 shadow-2xl backdrop-blur">
           <div className="grid gap-6 p-6 md:grid-cols-[1.45fr_0.95fr] md:p-8">
             <div className="space-y-5">
