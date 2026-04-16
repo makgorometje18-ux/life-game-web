@@ -191,8 +191,11 @@ export default function AuthPage() {
 
   if (showLogoLoader) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#2f1b12_0%,#100c08_50%,#020202_100%)] px-6 text-white">
-        <div className="flex w-full max-w-md flex-col items-center text-center">
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#04111c] px-6 text-white">
+        <div className="absolute inset-0 bg-[url('/game-start-background.png')] bg-cover bg-center" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(1,9,16,0.1)_0%,rgba(1,7,13,0.38)_48%,rgba(0,0,0,0.9)_100%)]" />
+
+        <div className="relative z-10 flex w-full max-w-md flex-col items-center text-center">
           <div className="logo-loader-shell">
             <div className="game-logo-glow" aria-hidden="true" />
             <GameLogo className="game-logo-loader relative z-10 h-52 w-52 text-red-500" />
@@ -210,8 +213,11 @@ export default function AuthPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#2b1d12_0%,#090909_52%,#000000_100%)] px-6 text-white">
-      <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-zinc-900/90 p-8 shadow-2xl backdrop-blur">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#04111c] px-6 text-white">
+      <div className="absolute inset-0 bg-[url('/game-start-background.png')] bg-cover bg-center" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(1,9,16,0.1)_0%,rgba(1,7,13,0.38)_48%,rgba(0,0,0,0.9)_100%)]" />
+
+      <div className="relative z-10 w-full max-w-md rounded-[2rem] border border-white/10 bg-zinc-900/90 p-8 shadow-2xl backdrop-blur">
         <div className="mb-6 flex flex-col items-center text-center">
           <GameLogo className="h-28 w-28 text-white" />
           <h1 className="mt-4 text-3xl font-bold">Login / Sign Up</h1>
