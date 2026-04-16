@@ -3,7 +3,7 @@ import { GameLogo } from "@/components/game-logo";
 export default function Home() {
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#04111c] text-white">
-      <div className="absolute inset-0 bg-[url('/game-start-background.svg')] bg-cover bg-center" />
+      <div className="absolute inset-0 bg-[url('/game-start-background.png')] bg-cover bg-center" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(1,9,16,0.1)_0%,rgba(1,7,13,0.32)_47%,rgba(0,0,0,0.88)_100%)]" />
 
       <div className="relative z-10 px-6 text-center">
