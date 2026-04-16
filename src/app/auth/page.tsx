@@ -224,15 +224,14 @@ export default function AuthPage() {
             aria-valuemax={100}
             aria-valuenow={loadingProgress}
           >
-            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.35em] text-stone-300">
-              <span>Loading</span>
-              <span>{loadingProgress}%</span>
-            </div>
-            <div className="mt-3 h-3 overflow-hidden rounded-full border border-sky-200/20 bg-black/45 shadow-[0_0_22px_rgba(56,189,248,0.18)]">
+            <div className="relative h-8 overflow-hidden rounded-full border border-sky-200/20 bg-black/45 shadow-[0_0_22px_rgba(56,189,248,0.18)]">
               <div
                 className="h-full rounded-full bg-[linear-gradient(90deg,#38bdf8_0%,#dff9ff_58%,#60a5fa_100%)] shadow-[0_0_18px_rgba(125,221,255,0.78)] transition-[width] duration-100 ease-linear"
                 style={{ width: `${loadingProgress}%` }}
               />
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-black tabular-nums tracking-[0.12em] text-white drop-shadow-[0_1px_5px_rgba(0,0,0,0.85)]">
+                {loadingProgress}%
+              </span>
             </div>
           </div>
           <h1 className="mt-3 text-4xl font-black tracking-[0.08em] text-white">Life Game Africa</h1>
