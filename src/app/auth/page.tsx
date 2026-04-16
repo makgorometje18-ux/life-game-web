@@ -205,7 +205,7 @@ export default function AuthPage() {
           </p>
           <h1 className="mt-3 text-4xl font-black tracking-[0.08em] text-white">Life Game Africa</h1>
           <p className="mt-4 text-base leading-7 text-stone-300">
-            Your logo is changing from red to orange to green three times before the game opens.
+            Your 3D logo is loading before the game opens.
           </p>
         </div>
       </main>
