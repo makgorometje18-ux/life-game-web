@@ -73,6 +73,8 @@ const baseProgress: Progress = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const srdGrantAmount = 370;
+const moneyLabelFor = (amount: number) => (amount <= srdGrantAmount ? "SASSA SRD Grant" : "Wallet Balance");
 const schemaHelp = "Dating tables are missing or outdated. Run the latest SQL in supabase/dating_schema.sql, then try again.";
 const sortPair = (first: string, second: string) => (first < second ? [first, second] : [second, first]);
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
@@ -96,6 +98,8 @@ export default function PartnerScenePage() {
   const [stackIndex, setStackIndex] = useState(0);
   const [activeMatchId, setActiveMatchId] = useState("");
   const [chatDraft, setChatDraft] = useState("");
+  const playerMoney = player?.money ?? 0;
+  const moneyLabel = moneyLabelFor(playerMoney);
 
   const loadScene = async (preserveMatchId?: string) => {
     try {
@@ -549,7 +553,7 @@ export default function PartnerScenePage() {
           </div>
           <div className="mt-5 flex flex-wrap gap-2 text-xs text-white/80">
             <span className="rounded-full bg-white/10 px-3 py-2">Age {player?.age ?? 18}</span>
-            <span className="rounded-full bg-white/10 px-3 py-2">Money R{player?.money ?? 0}</span>
+            <span className="rounded-full bg-white/10 px-3 py-2">{moneyLabel} R{playerMoney}</span>
             <span className="rounded-full bg-white/10 px-3 py-2">Happiness {player?.happiness ?? 0}</span>
             <span className="rounded-full bg-white/10 px-3 py-2">{matches.length} Match{matches.length === 1 ? "" : "es"}</span>
           </div>

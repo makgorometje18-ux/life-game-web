@@ -48,6 +48,7 @@ const baseProgress: Progress = {
 const careers: Career[] = ["Unemployed", "Worker", "Skilled Pro", "Manager", "Executive"];
 const houses: House[] = ["None", "Starter Home", "Family House", "Luxury Estate"];
 const startingSrdGrant = 370;
+const moneyLabelFor = (amount: number) => (amount <= startingSrdGrant ? "SASSA SRD Grant" : "Wallet Balance");
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const lifeStage = (age: number) =>
   age < 13 ? "Childhood" : age < 20 ? "Teen Years" : age < 36 ? "Young Adult" : age < 61 ? "Prime Years" : "Legacy Era";
@@ -77,7 +78,7 @@ export default function GamePage() {
   const isLegend = age >= 75 && !isGameOver;
   const inJail = progress.jailYears > 0;
   const wealth = money >= 15000 ? "Elite" : money >= 5000 ? "Thriving" : money >= 1500 ? "Stable" : "Fragile";
-  const moneyLabel = progress.career === "Unemployed" ? "SASSA SRD Grant" : "Money";
+  const moneyLabel = moneyLabelFor(money);
   const progressKey = playerId ? `life-progress:${playerId}` : "";
 
   const pushHistory = (message: string) => setHistory((current) => [message, ...current].slice(0, 10));

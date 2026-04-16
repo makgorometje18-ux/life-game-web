@@ -45,6 +45,8 @@ type Zone = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const srdGrantAmount = 370;
+const moneyLabelFor = (amount: number) => (amount <= srdGrantAmount ? "SASSA SRD Grant" : "Wallet Balance");
 const capeTownQuery = encodeURIComponent("Cape Town CBD, Cape Town, South Africa");
 const mapsEmbedKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY;
 const mapSrc = mapsEmbedKey
@@ -187,6 +189,7 @@ export default function EducationScenePage() {
 
   const activeZone = zones.find((zone) => zone.id === activeZoneId) ?? zones[0];
   const currentMoney = Math.max(0, (player?.money ?? 0) - moneySpent);
+  const moneyLabel = moneyLabelFor(currentMoney);
   const currentEducation = clamp((player?.education ?? 0) + educationGain, 0, 100);
   const currentHappiness = clamp((player?.happiness ?? 100) + Math.max(0, 4 - Math.floor(sessionStats.fatigue / 10)), 0, 100);
   const currentHealth = clamp((player?.health ?? 100) - Math.max(0, Math.floor(sessionStats.fatigue / 14)), 0, 100);
@@ -324,7 +327,7 @@ export default function EducationScenePage() {
                 <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-4 py-2 text-sm font-semibold text-sky-100">Location: Cape Town CBD</span>
                 <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-100">Player: {player?.name || "Player"}</span>
                 <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-stone-300">Education: {currentEducation}/100</span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-stone-300">Funds Left: R{currentMoney}</span>
+                <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-stone-300">{moneyLabel}: R{currentMoney}</span>
               </div>
             </div>
 
