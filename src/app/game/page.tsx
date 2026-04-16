@@ -421,7 +421,7 @@ export default function GamePage() {
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#04111c] px-4 py-8 text-stone-100 md:px-8">
-      <div className="pointer-events-none absolute inset-0 bg-[url('/game-start-background.jpeg')] bg-cover bg-center" />
+      <div className="game-background-photo pointer-events-none absolute inset-0" />
 
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(1,9,16,0.12)_0%,rgba(1,7,13,0.58)_54%,rgba(0,0,0,0.92)_100%)]" />
 

@@ -129,6 +129,33 @@ select {
   -webkit-tap-highlight-color: transparent;
 }
 
+.game-background-photo {
+  overflow: hidden;
+}
+
+.game-background-photo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/game-start-background.jpeg");
+  background-position: center;
+  background-size: cover;
+  transform: translateZ(0);
+}
+
+@media (min-width: 900px) and (min-aspect-ratio: 4 / 3) {
+  .game-background-photo::before {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: 100vh;
+    height: 100vw;
+    background-position: center;
+    transform: translate(-50%, -50%) rotate(90deg) scale(1.04);
+    transform-origin: center;
+  }
+}
+
 button {
   touch-action: manipulation;
 }
