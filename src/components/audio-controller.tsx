@@ -175,8 +175,45 @@ export function AudioController() {
 
   const playClickSound = (context: AudioContext) => {
     const now = context.currentTime;
-    melodicTone(context, context.destination, 1046.5, now, 0.09, 0.06);
-    melodicTone(context, context.destination, 1318.5, now + 0.03, 0.08, 0.045);
+    const noiseBuffer = context.createBuffer(1, Math.floor(context.sampleRate * 0.035), context.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+
+    for (let index = 0; index < noiseData.length; index += 1) {
+      noiseData[index] = (Math.random() * 2 - 1) * (1 - index / noiseData.length);
+    }
+
+    const noise = context.createBufferSource();
+    const noiseGain = context.createGain();
+    const noiseFilter = context.createBiquadFilter();
+    const tap = context.createOscillator();
+    const tapGain = context.createGain();
+
+    noise.buffer = noiseBuffer;
+    noiseFilter.type = "highpass";
+    noiseFilter.frequency.setValueAtTime(2800, now);
+
+    noiseGain.gain.setValueAtTime(0.0001, now);
+    noiseGain.gain.linearRampToValueAtTime(0.08, now + 0.004);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.035);
+
+    tap.type = "square";
+    tap.frequency.setValueAtTime(1200, now);
+    tap.frequency.exponentialRampToValueAtTime(580, now + 0.035);
+
+    tapGain.gain.setValueAtTime(0.0001, now);
+    tapGain.gain.linearRampToValueAtTime(0.035, now + 0.003);
+    tapGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(context.destination);
+    tap.connect(tapGain);
+    tapGain.connect(context.destination);
+
+    noise.start(now);
+    noise.stop(now + 0.04);
+    tap.start(now);
+    tap.stop(now + 0.05);
   };
 
   const playWelcomeAudio = useCallback(async () => {
@@ -311,10 +348,14 @@ export function AudioController() {
 
       const target = event.target;
       if (!(target instanceof Element)) return;
-      if (!target.closest("button")) return;
+      const button = target.closest("button");
+      if (!button || button.disabled) return;
 
       const context = loopRef.current?.context;
       if (!context) return;
+      if (context.state === "suspended") {
+        void context.resume();
+      }
       playClickSound(context);
     };
 
