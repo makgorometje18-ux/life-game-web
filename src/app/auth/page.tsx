@@ -5,6 +5,7 @@ import { GameLogo } from "@/components/game-logo";
 import { supabase } from "@/lib/supabase";
 
 const logoLoaderDuration = 6600;
+const startingSrdGrant = 370;
 
 type PlayerSyncError = {
   code?: string;
@@ -134,6 +135,7 @@ export default function AuthPage() {
         email: normalizedEmail,
         name: normalizedEmail.split("@")[0] || "Player",
         age: 18,
+        money: startingSrdGrant,
         country: "South Africa",
         is_online: true,
         updated_at: now,

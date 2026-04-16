@@ -476,7 +476,7 @@ export default function PartnerScenePage() {
 
     const nextProgress = { ...progress, spouse: activeMatchProfile.display_name };
     const newAge = (player.age ?? 18) + 1;
-    const newMoney = Math.max(0, (player.money ?? 500) - 500);
+    const newMoney = Math.max(0, (player.money ?? 370) - 500);
     const newHealth = clamp((player.health ?? 100) - 2, 0, 100);
     const newHappiness = clamp((player.happiness ?? 100) + 18, 0, 100);
 

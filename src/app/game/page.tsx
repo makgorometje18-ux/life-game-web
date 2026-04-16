@@ -47,6 +47,7 @@ const baseProgress: Progress = {
 
 const careers: Career[] = ["Unemployed", "Worker", "Skilled Pro", "Manager", "Executive"];
 const houses: House[] = ["None", "Starter Home", "Family House", "Luxury Estate"];
+const startingSrdGrant = 370;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const lifeStage = (age: number) =>
   age < 13 ? "Childhood" : age < 20 ? "Teen Years" : age < 36 ? "Young Adult" : age < 61 ? "Prime Years" : "Legacy Era";
@@ -61,7 +62,7 @@ export default function GamePage() {
   const [name, setName] = useState("Player");
   const [country, setCountry] = useState("Unknown");
   const [age, setAge] = useState(18);
-  const [money, setMoney] = useState(500);
+  const [money, setMoney] = useState(startingSrdGrant);
   const [health, setHealth] = useState(100);
   const [happiness, setHappiness] = useState(100);
   const [education, setEducation] = useState(0);
@@ -76,6 +77,7 @@ export default function GamePage() {
   const isLegend = age >= 75 && !isGameOver;
   const inJail = progress.jailYears > 0;
   const wealth = money >= 15000 ? "Elite" : money >= 5000 ? "Thriving" : money >= 1500 ? "Stable" : "Fragile";
+  const moneyLabel = progress.career === "Unemployed" ? "SASSA SRD Grant" : "Money";
   const progressKey = playerId ? `life-progress:${playerId}` : "";
 
   const pushHistory = (message: string) => setHistory((current) => [message, ...current].slice(0, 10));
@@ -125,7 +127,7 @@ export default function GamePage() {
       setName(data.name || "Player");
       setCountry(data.country || "Unknown");
       setAge(data.age ?? 18);
-      setMoney(data.money ?? 500);
+      setMoney(data.money ?? startingSrdGrant);
       setHealth(data.health ?? 100);
       setHappiness(data.happiness ?? 100);
       setEducation(data.education ?? 0);
@@ -472,7 +474,7 @@ export default function GamePage() {
               <p className="text-sm font-semibold uppercase tracking-[0.25em] text-stone-400">Current Snapshot</p>
               <div className="mt-5 grid grid-cols-2 gap-4">
                 <div className="rounded-2xl bg-black/40 p-4"><p className="text-sm text-stone-400">Age</p><p className="mt-1 text-3xl font-bold">{age}</p></div>
-                <div className="rounded-2xl bg-black/40 p-4"><p className="text-sm text-stone-400">Money</p><p className="mt-1 text-3xl font-bold">R{money}</p></div>
+                <div className="rounded-2xl bg-black/40 p-4"><p className="text-sm text-stone-400">{moneyLabel}</p><p className="mt-1 text-3xl font-bold">R{money}</p></div>
                 <div className="col-span-2 rounded-2xl bg-black/40 p-4"><div className="flex items-center justify-between text-sm text-stone-300"><span>Health</span><span>{health}/100</span></div><div className="mt-3 h-3 rounded-full bg-white/10"><div className={`h-3 rounded-full ${meterTone(health)}`} style={{ width: `${health}%` }} /></div></div>
                 <div className="col-span-2 rounded-2xl bg-black/40 p-4"><div className="flex items-center justify-between text-sm text-stone-300"><span>Happiness</span><span>{happiness}/100</span></div><div className="mt-3 h-3 rounded-full bg-white/10"><div className={`h-3 rounded-full ${meterTone(happiness)}`} style={{ width: `${happiness}%` }} /></div></div>
                 <div className="col-span-2 rounded-2xl bg-black/40 p-4"><div className="flex items-center justify-between text-sm text-stone-300"><span>Education</span><span>{education}/100</span></div><div className="mt-3 h-3 rounded-full bg-white/10"><div className="h-3 rounded-full bg-sky-400" style={{ width: `${education}%` }} /></div></div>

@@ -74,12 +74,13 @@ begin
     return recovered_id;
   end if;
 
-  insert into public.players (id, email, name, age, country, is_online, updated_at)
+  insert into public.players (id, email, name, age, money, country, is_online, updated_at)
   values (
     current_user_id,
     current_email,
     split_part(current_email, '@', 1),
     18,
+    370,
     'South Africa',
     true,
     now()

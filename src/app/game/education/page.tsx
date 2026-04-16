@@ -233,7 +233,7 @@ export default function EducationScenePage() {
     const attendanceBonus = sessionStats.attendance >= 20 ? 2 : 0;
     const fatiguePenalty = Math.floor(sessionStats.fatigue / 20);
     const newAge = (player.age ?? 18) + 1;
-    const newMoney = Math.max(0, (player.money ?? 500) - moneySpent);
+    const newMoney = Math.max(0, (player.money ?? 370) - moneySpent);
     const newHealth = clamp((player.health ?? 100) - fatiguePenalty, 0, 100);
     const newHappiness = clamp((player.happiness ?? 100) + (sessionStats.studyPoints >= 20 ? 4 : 1) - fatiguePenalty, 0, 100);
     const newEducation = clamp((player.education ?? 0) + educationGain + readinessBonus + attendanceBonus, 0, 100);
