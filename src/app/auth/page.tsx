@@ -6,6 +6,17 @@ import { supabase } from "@/lib/supabase";
 
 const logoLoaderDuration = 6600;
 
+type PlayerSyncError = {
+  code?: string;
+  message: string;
+};
+
+const isMissingRecoveryFunction = (error: PlayerSyncError | null) =>
+  Boolean(error?.code === "PGRST202" || error?.message.toLowerCase().includes("recover_player_for_current_user"));
+
+const isDuplicateEmailError = (error: PlayerSyncError | null) =>
+  Boolean(error?.code === "23505" && error?.message.includes("players_email_key"));
+
 export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -117,40 +128,81 @@ export default function AuthPage() {
 
       const user = data.user;
       const normalizedEmail = user.email?.trim().toLowerCase() || "";
-      const playerPayload = {
+      const now = new Date().toISOString();
+      const freshPlayerPayload = {
         id: user.id,
         email: normalizedEmail,
         name: normalizedEmail.split("@")[0] || "Player",
         age: 18,
         country: "South Africa",
         is_online: true,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
+      };
+      const activePlayerPayload = {
+        email: normalizedEmail,
+        is_online: true,
+        updated_at: now,
       };
 
       let playerError: { message: string } | null = null;
 
       if (normalizedEmail) {
-        const recoverExisting = await supabase
-          .from("players")
-          .update(playerPayload)
-          .eq("email", normalizedEmail)
-          .select("id");
+        const recoverByFunction = await supabase.rpc("recover_player_for_current_user");
 
-        playerError = recoverExisting.error ?? null;
+        if (!recoverByFunction.error) {
+          playerError = null;
+        } else {
+          if (!isMissingRecoveryFunction(recoverByFunction.error)) {
+            playerError = recoverByFunction.error;
+          }
 
-        if (!playerError && (!recoverExisting.data || recoverExisting.data.length === 0)) {
-          const createFresh = await supabase.from("players").upsert(playerPayload, { onConflict: "id" });
-          playerError = createFresh.error ?? null;
+          if (isMissingRecoveryFunction(recoverByFunction.error)) {
+            const activateOwnPlayer = await supabase
+              .from("players")
+              .update(activePlayerPayload)
+              .eq("id", user.id)
+              .select("id")
+              .maybeSingle();
+
+            playerError = activateOwnPlayer.error ?? null;
+
+            if (!playerError && !activateOwnPlayer.data) {
+              const recoverByEmail = await supabase
+                .from("players")
+                .update({ ...activePlayerPayload, id: user.id })
+                .eq("email", normalizedEmail)
+                .select("id")
+                .maybeSingle();
+
+              playerError = recoverByEmail.error ?? null;
+
+              if (!playerError && !recoverByEmail.data) {
+                const createFresh = await supabase.from("players").insert(freshPlayerPayload);
+                playerError = createFresh.error ?? null;
+              }
+            }
+          }
+        }
+
+        if (isDuplicateEmailError(playerError)) {
+          const recoverDuplicate = await supabase
+            .from("players")
+            .update({ ...activePlayerPayload, id: user.id })
+            .eq("email", normalizedEmail)
+            .select("id")
+            .maybeSingle();
+
+          playerError = recoverDuplicate.error ?? null;
         }
       } else {
-        const createFresh = await supabase.from("players").upsert(playerPayload, { onConflict: "id" });
+        const createFresh = await supabase.from("players").upsert(freshPlayerPayload, { onConflict: "id" });
         playerError = createFresh.error ?? null;
       }
 
       if (playerError) {
         console.error("Player sync failed", playerError);
         setIsError(true);
-        setMessage(`Login worked, but player setup failed: ${playerError.message}. If this account existed before, run the player recovery SQL I mentioned.`);
+        setMessage(`Login worked, but your old player record could not be recovered yet. Run the latest Supabase player recovery SQL once, then log in again.`);
         return;
       }
 
