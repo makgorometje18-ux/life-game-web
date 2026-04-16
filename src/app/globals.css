@@ -122,29 +122,6 @@ body {
   }
 }
 
-@keyframes loading-dots-cycle {
-  0%,
-  20% {
-    content: "";
-  }
-  40% {
-    content: ".";
-  }
-  60% {
-    content: "..";
-  }
-  80%,
-  100% {
-    content: "...";
-  }
-}
-
-.loading-dots::after {
-  display: inline-block;
-  animation: loading-dots-cycle 2.2s steps(1, end) 3;
-  content: "";
-}
-
 button,
 a,
 input,

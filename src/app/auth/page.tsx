@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { GameLogo } from "@/components/game-logo";
 import { supabase } from "@/lib/supabase";
 
+const logoLoaderDuration = 6600;
+
 export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -11,15 +13,29 @@ export default function AuthPage() {
   const [isError, setIsError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showLogoLoader, setShowLogoLoader] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
 
   useEffect(() => {
     if (!showLogoLoader) return;
 
-    const timer = window.setTimeout(() => {
-      window.location.href = "/game";
-    }, 6600);
+    const startedAt = Date.now();
+    setLoadingProgress(0);
 
-    return () => window.clearTimeout(timer);
+    const progressTimer = window.setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const nextProgress = Math.min(100, Math.round((elapsed / logoLoaderDuration) * 100));
+      setLoadingProgress(nextProgress);
+    }, 80);
+
+    const timer = window.setTimeout(() => {
+      setLoadingProgress(100);
+      window.location.href = "/game";
+    }, logoLoaderDuration);
+
+    return () => {
+      window.clearInterval(progressTimer);
+      window.clearTimeout(timer);
+    };
   }, [showLogoLoader]);
 
   const validateInputs = () => {
@@ -200,9 +216,25 @@ export default function AuthPage() {
             <div className="game-logo-glow" aria-hidden="true" />
             <GameLogo className="game-logo-loader relative z-10 h-52 w-52 text-red-500" />
           </div>
-          <p className="mt-8 text-sm uppercase tracking-[0.45em] text-stone-300">
-            Loading<span className="loading-dots" aria-hidden="true" />
-          </p>
+          <div
+            className="mt-8 w-full max-w-xs"
+            role="progressbar"
+            aria-label="Loading game"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={loadingProgress}
+          >
+            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.35em] text-stone-300">
+              <span>Loading</span>
+              <span>{loadingProgress}%</span>
+            </div>
+            <div className="mt-3 h-3 overflow-hidden rounded-full border border-sky-200/20 bg-black/45 shadow-[0_0_22px_rgba(56,189,248,0.18)]">
+              <div
+                className="h-full rounded-full bg-[linear-gradient(90deg,#38bdf8_0%,#dff9ff_58%,#60a5fa_100%)] shadow-[0_0_18px_rgba(125,221,255,0.78)] transition-[width] duration-100 ease-linear"
+                style={{ width: `${loadingProgress}%` }}
+              />
+            </div>
+          </div>
           <h1 className="mt-3 text-4xl font-black tracking-[0.08em] text-white">Life Game Africa</h1>
           <p className="mt-4 text-base leading-7 text-stone-300">
             Your 3D logo is loading before the game opens.
