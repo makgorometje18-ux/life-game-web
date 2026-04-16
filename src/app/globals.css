@@ -129,6 +129,43 @@ select {
   -webkit-tap-highlight-color: transparent;
 }
 
+button {
+  touch-action: manipulation;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+  transform: translateY(0) scale(1);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    filter 120ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+  will-change: transform;
+}
+
+button:not(:disabled):hover {
+  filter: brightness(1.04);
+}
+
+button:not(:disabled):active {
+  filter: brightness(0.96);
+  transform: translateY(2px) scale(0.98);
+}
+
+button:disabled {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled) {
+    transition: none;
+  }
+}
+
 .game-neon-map {
   background:
     radial-gradient(circle at 50% 58%, rgba(112, 215, 255, 0.24) 0%, rgba(112, 215, 255, 0.1) 8%, transparent 20%),
