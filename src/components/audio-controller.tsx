@@ -256,7 +256,6 @@ const darkImpactTone = (context: AudioContext, destination: AudioNode, noiseBuff
 export function AudioController() {
   const [isMuted, setIsMuted] = useState(true);
   const loopRef = useRef<LoopState | null>(null);
-  const welcomeAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const stopLoop = useCallback(() => {
     const loop = loopRef.current;
@@ -314,21 +313,6 @@ export function AudioController() {
     tap.start(now);
     tap.stop(now + 0.05);
   };
-
-  const playWelcomeAudio = useCallback(async () => {
-    if (!welcomeAudioRef.current) {
-      const audio = new Audio("/welcome-voice.mp4");
-      audio.preload = "auto";
-      welcomeAudioRef.current = audio;
-    }
-
-    try {
-      welcomeAudioRef.current.currentTime = 0;
-      await welcomeAudioRef.current.play();
-    } catch (error) {
-      console.error("Welcome audio could not start", error);
-    }
-  }, []);
 
   const startLoop = useCallback(async () => {
     if (loopRef.current) return;
@@ -410,7 +394,6 @@ export function AudioController() {
 
       try {
         await startLoop();
-        await playWelcomeAudio();
       } catch (error) {
         console.error("Audio could not start", error);
       }
@@ -419,12 +402,8 @@ export function AudioController() {
     }
 
     setIsMuted(true);
-    if (welcomeAudioRef.current) {
-      welcomeAudioRef.current.pause();
-      welcomeAudioRef.current.currentTime = 0;
-    }
     stopLoop();
-  }, [isMuted, playWelcomeAudio, startLoop, stopLoop]);
+  }, [isMuted, startLoop, stopLoop]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -449,9 +428,6 @@ export function AudioController() {
 
   useEffect(
     () => () => {
-      if (welcomeAudioRef.current) {
-        welcomeAudioRef.current.pause();
-      }
       stopLoop();
     },
     [stopLoop]
