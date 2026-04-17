@@ -380,7 +380,7 @@ export default function GamePage() {
         { title: "Recovery", text: "Keep your mind and body from collapsing in prison.", label: "Endure and Rest", tone: "sky", run: rest },
       ]
     : [
-        { title: "Advance Year", text: "Let life move forward and see what comes next.", label: "Live the Next Year", run: async () => applyYear("You keep moving forward.", {}) },
+        { title: "Life Path", text: "Play the main life story, move through each year, and see what your choices become.", label: "Continue Your Life", run: async () => applyYear("You keep moving forward.", {}) },
         { title: "Education", text: "Spend money to build your future.", label: "Study Hard", disabled: age < 6, run: study },
         { title: "Career", text: "Work, earn money, and rise through career levels.", label: "Work This Year", tone: "sky", disabled: age < 16, run: work },
         { title: "Business", text: "Take a risk for bigger rewards.", label: "Build a Hustle", run: hustle },
@@ -487,8 +487,8 @@ export default function GamePage() {
 
         <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-[2rem] border border-white/10 bg-black/35 p-6 shadow-xl backdrop-blur">
-            <p className="text-sm uppercase tracking-[0.25em] text-stone-400">Choices</p>
-            <h2 className="mt-2 text-3xl font-bold text-white">Control the next chapter</h2>
+            <p className="text-sm uppercase tracking-[0.25em] text-stone-400">Main Game</p>
+            <h2 className="mt-2 text-3xl font-bold text-white">Play your life path</h2>
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               {actions.map((action) => {
                 const tone =
