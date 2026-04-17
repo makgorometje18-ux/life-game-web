@@ -50,15 +50,74 @@ const defaultGoalCards = [
   { title: "Still figuring it out", text: "Stay open while learning what feels right." },
 ];
 
-const normalizeSouthAfricanPhone = (value: string) => {
+const africanDialCodes = [
+  { country: "Algeria", code: "+213" },
+  { country: "Angola", code: "+244" },
+  { country: "Benin", code: "+229" },
+  { country: "Botswana", code: "+267" },
+  { country: "Burkina Faso", code: "+226" },
+  { country: "Burundi", code: "+257" },
+  { country: "Cabo Verde", code: "+238" },
+  { country: "Cameroon", code: "+237" },
+  { country: "Central African Republic", code: "+236" },
+  { country: "Chad", code: "+235" },
+  { country: "Comoros", code: "+269" },
+  { country: "Congo", code: "+242" },
+  { country: "Democratic Republic of the Congo", code: "+243" },
+  { country: "Cote d'Ivoire", code: "+225" },
+  { country: "Djibouti", code: "+253" },
+  { country: "Egypt", code: "+20" },
+  { country: "Equatorial Guinea", code: "+240" },
+  { country: "Eritrea", code: "+291" },
+  { country: "Eswatini", code: "+268" },
+  { country: "Ethiopia", code: "+251" },
+  { country: "Gabon", code: "+241" },
+  { country: "Gambia", code: "+220" },
+  { country: "Ghana", code: "+233" },
+  { country: "Guinea", code: "+224" },
+  { country: "Guinea-Bissau", code: "+245" },
+  { country: "Kenya", code: "+254" },
+  { country: "Lesotho", code: "+266" },
+  { country: "Liberia", code: "+231" },
+  { country: "Libya", code: "+218" },
+  { country: "Madagascar", code: "+261" },
+  { country: "Malawi", code: "+265" },
+  { country: "Mali", code: "+223" },
+  { country: "Mauritania", code: "+222" },
+  { country: "Mauritius", code: "+230" },
+  { country: "Morocco", code: "+212" },
+  { country: "Mozambique", code: "+258" },
+  { country: "Namibia", code: "+264" },
+  { country: "Niger", code: "+227" },
+  { country: "Nigeria", code: "+234" },
+  { country: "Rwanda", code: "+250" },
+  { country: "Sao Tome and Principe", code: "+239" },
+  { country: "Senegal", code: "+221" },
+  { country: "Seychelles", code: "+248" },
+  { country: "Sierra Leone", code: "+232" },
+  { country: "Somalia", code: "+252" },
+  { country: "South Africa", code: "+27" },
+  { country: "South Sudan", code: "+211" },
+  { country: "Sudan", code: "+249" },
+  { country: "Tanzania", code: "+255" },
+  { country: "Togo", code: "+228" },
+  { country: "Tunisia", code: "+216" },
+  { country: "Uganda", code: "+256" },
+  { country: "Zambia", code: "+260" },
+  { country: "Zimbabwe", code: "+263" },
+];
+
+const normalizePhoneNumber = (value: string, dialCode: string) => {
   const compactValue = value.trim().replace(/[\s()-]/g, "");
+  const compactDialCode = dialCode.replace("+", "");
 
   if (!compactValue) return "";
-  if (compactValue.startsWith("+27")) return compactValue;
-  if (compactValue.startsWith("27")) return `+${compactValue}`;
-  if (compactValue.startsWith("0")) return `+27${compactValue.slice(1)}`;
+  if (compactValue.startsWith("+")) return compactValue;
+  if (compactValue.startsWith("00")) return `+${compactValue.slice(2)}`;
+  if (compactValue.startsWith(compactDialCode)) return `+${compactValue}`;
+  if (compactValue.startsWith("0")) return `${dialCode}${compactValue.slice(1)}`;
 
-  return compactValue.startsWith("+") ? compactValue : `+${compactValue}`;
+  return `${dialCode}${compactValue}`;
 };
 
 const phoneProviderHelp =
@@ -69,6 +128,7 @@ export default function PartnerSetupPage() {
   const [step, setStep] = useState<SetupStep>("welcome");
   const [method, setMethod] = useState<ContactMethod>("email");
   const [contactValue, setContactValue] = useState("");
+  const [phoneDialCode, setPhoneDialCode] = useState("+27");
   const [displayName, setDisplayName] = useState("");
   const [age, setAge] = useState("18");
   const [city, setCity] = useState("");
@@ -175,7 +235,7 @@ export default function PartnerSetupPage() {
 
   const sendVerificationCode = async () => {
     if (!player) return;
-    const resolvedContact = method === "phone" ? normalizeSouthAfricanPhone(contactValue) : contactValue.trim();
+    const resolvedContact = method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : contactValue.trim();
 
     if (!resolvedContact) {
       setError(method === "phone" ? "Enter your phone number first." : "Enter your email address first.");
@@ -247,7 +307,7 @@ export default function PartnerSetupPage() {
     setError("");
 
     try {
-      const resolvedContact = method === "phone" ? normalizeSouthAfricanPhone(contactValue) : contactValue.trim();
+      const resolvedContact = method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : contactValue.trim();
       const verification =
         method === "phone"
           ? await supabase.auth.verifyOtp({
@@ -371,7 +431,7 @@ export default function PartnerSetupPage() {
           gender,
           relationship_goal: relationshipGoal,
           preferred_contact_method: method,
-          contact_value: method === "phone" ? normalizeSouthAfricanPhone(contactValue) : contactValue.trim(),
+          contact_value: method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : contactValue.trim(),
           contact_verified: true,
           verification_completed_at: new Date().toISOString(),
           location_label: locationLabel.trim() || city.trim(),
@@ -484,14 +544,46 @@ export default function PartnerSetupPage() {
                     ? "Enter your Google email so we can send your verification code."
                     : "Enter your email address so we can send your verification code."}
               </p>
-              <input
-                value={contactValue}
-                onChange={(event) => setContactValue(event.target.value)}
-                placeholder={method === "phone" ? "+27..." : "name@gmail.com"}
-                inputMode={method === "phone" ? "tel" : "email"}
-                autoComplete={method === "phone" ? "tel" : "email"}
-                className="mt-8 w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
-              />
+              {method === "phone" ? (
+                <div className="mt-8 grid gap-3 sm:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)]">
+                  <label className="sr-only" htmlFor="phone-country-code">
+                    Country code
+                  </label>
+                  <select
+                    id="phone-country-code"
+                    value={phoneDialCode}
+                    onChange={(event) => setPhoneDialCode(event.target.value)}
+                    className="min-w-0 rounded-2xl bg-white px-4 py-4 text-base font-semibold text-black outline-none"
+                  >
+                    {africanDialCodes.map((item) => (
+                      <option key={`${item.country}-${item.code}`} value={item.code}>
+                        {item.country} {item.code}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="sr-only" htmlFor="phone-number">
+                    Phone number
+                  </label>
+                  <input
+                    id="phone-number"
+                    value={contactValue}
+                    onChange={(event) => setContactValue(event.target.value)}
+                    placeholder="Phone"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    className="min-w-0 rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
+                  />
+                </div>
+              ) : (
+                <input
+                  value={contactValue}
+                  onChange={(event) => setContactValue(event.target.value)}
+                  placeholder="name@gmail.com"
+                  inputMode="email"
+                  autoComplete="email"
+                  className="mt-8 w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
+                />
+              )}
               <button
                 onClick={() => void sendVerificationCode()}
                 disabled={saving}
