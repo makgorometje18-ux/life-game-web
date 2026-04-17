@@ -10,13 +10,13 @@ type LoopState = {
 
 const MASTER_VOLUME = 0.22;
 
-const melodyNotes = [261.63, 293.66, 329.63, 392, 440, 523.25];
-const bassline = [65.41, 73.42, 82.41, 98];
-const shakerPattern = [0.62, 0.2, 0.42, 0.18, 0.58, 0.22, 0.36, 0.16];
-const clapPattern = [0, 1, 0, 0, 1, 0, 0, 1];
-const kickPattern = [1, 0, 0, 1, 0, 1, 0, 0];
-const notePattern = [0, 2, 3, 1, 4, 2, 5, 3];
-const STEP_SECONDS = 0.42;
+const darkBassline = [49, 43.65, 38.89, 43.65];
+const darkOrganNotes = [98, 116.54, 130.81, 87.31];
+const darkBellNotes = [392, 349.23, 293.66, 261.63];
+const deepHitPattern = [1, 0, 0, 0, 1, 0, 0, 0];
+const bellPattern = [1, 0, 0, 1, 0, 0, 1, 0];
+const organPattern = [1, 0, 1, 0, 1, 0, 1, 0];
+const STEP_SECONDS = 0.78;
 const LOOKAHEAD_STEPS = 8;
 
 const makeNoiseBuffer = (context: AudioContext) => {
@@ -154,6 +154,105 @@ const shakerTone = (
   source.stop(startTime + 0.09);
 };
 
+const darkBellTone = (context: AudioContext, destination: AudioNode, frequency: number, startTime: number) => {
+  const body = context.createOscillator();
+  const shimmer = context.createOscillator();
+  const gain = context.createGain();
+  const filter = context.createBiquadFilter();
+
+  body.type = "sine";
+  body.frequency.setValueAtTime(frequency, startTime);
+  shimmer.type = "triangle";
+  shimmer.frequency.setValueAtTime(frequency * 2.01, startTime);
+
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(frequency * 2.4, startTime);
+  filter.Q.value = 3.4;
+
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.linearRampToValueAtTime(0.2, startTime + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 1.9);
+
+  body.connect(filter);
+  shimmer.connect(filter);
+  filter.connect(gain);
+  gain.connect(destination);
+
+  body.start(startTime);
+  shimmer.start(startTime);
+  body.stop(startTime + 2);
+  shimmer.stop(startTime + 2);
+};
+
+const darkOrganTone = (context: AudioContext, destination: AudioNode, frequency: number, startTime: number) => {
+  const root = context.createOscillator();
+  const fifth = context.createOscillator();
+  const octave = context.createOscillator();
+  const gain = context.createGain();
+  const filter = context.createBiquadFilter();
+
+  root.type = "sawtooth";
+  fifth.type = "triangle";
+  octave.type = "sine";
+  root.frequency.setValueAtTime(frequency, startTime);
+  fifth.frequency.setValueAtTime(frequency * 1.5, startTime);
+  octave.frequency.setValueAtTime(frequency * 2, startTime);
+
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(620, startTime);
+  filter.frequency.linearRampToValueAtTime(420, startTime + 1.2);
+
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.linearRampToValueAtTime(0.095, startTime + 0.12);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 1.65);
+
+  root.connect(filter);
+  fifth.connect(filter);
+  octave.connect(filter);
+  filter.connect(gain);
+  gain.connect(destination);
+
+  root.start(startTime);
+  fifth.start(startTime);
+  octave.start(startTime);
+  root.stop(startTime + 1.7);
+  fifth.stop(startTime + 1.7);
+  octave.stop(startTime + 1.7);
+};
+
+const darkImpactTone = (context: AudioContext, destination: AudioNode, noiseBuffer: AudioBuffer, startTime: number) => {
+  const boom = context.createOscillator();
+  const boomGain = context.createGain();
+  const noise = context.createBufferSource();
+  const noiseGain = context.createGain();
+  const noiseFilter = context.createBiquadFilter();
+
+  boom.type = "sine";
+  boom.frequency.setValueAtTime(92, startTime);
+  boom.frequency.exponentialRampToValueAtTime(30, startTime + 0.42);
+  boomGain.gain.setValueAtTime(0.0001, startTime);
+  boomGain.gain.linearRampToValueAtTime(0.34, startTime + 0.018);
+  boomGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.5);
+
+  noise.buffer = noiseBuffer;
+  noiseFilter.type = "lowpass";
+  noiseFilter.frequency.setValueAtTime(520, startTime);
+  noiseGain.gain.setValueAtTime(0.0001, startTime);
+  noiseGain.gain.linearRampToValueAtTime(0.08, startTime + 0.012);
+  noiseGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.28);
+
+  boom.connect(boomGain);
+  boomGain.connect(destination);
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(destination);
+
+  boom.start(startTime);
+  boom.stop(startTime + 0.55);
+  noise.start(startTime);
+  noise.stop(startTime + 0.32);
+};
+
 export function AudioController() {
   const [isMuted, setIsMuted] = useState(true);
   const loopRef = useRef<LoopState | null>(null);
@@ -277,34 +376,19 @@ export function AudioController() {
         const currentStep = stepIndex + offset;
         const startTime = baseTime + offset * STEP_SECONDS;
 
-        if (kickPattern[currentStep % kickPattern.length]) {
-          kickTone(context, filter, startTime);
+        if (deepHitPattern[currentStep % deepHitPattern.length]) {
+          darkImpactTone(context, filter, noiseBuffer, startTime);
         }
 
-        if (clapPattern[currentStep % clapPattern.length]) {
-          clapTone(context, filter, noiseBuffer, startTime + STEP_SECONDS * 0.5);
+        if (bellPattern[currentStep % bellPattern.length]) {
+          darkBellTone(context, filter, darkBellNotes[Math.floor(currentStep / 3) % darkBellNotes.length], startTime + 0.08);
         }
 
-        shakerTone(
-          context,
-          filter,
-          noiseBuffer,
-          startTime + STEP_SECONDS * 0.25,
-          shakerPattern[currentStep % shakerPattern.length]
-        );
-
-        if (currentStep % 2 === 0) {
-          bassTone(context, filter, bassline[Math.floor(currentStep / 2) % bassline.length], startTime);
+        if (organPattern[currentStep % organPattern.length]) {
+          darkOrganTone(context, filter, darkOrganNotes[Math.floor(currentStep / 2) % darkOrganNotes.length], startTime + 0.18);
         }
 
-        melodicTone(
-          context,
-          filter,
-          melodyNotes[notePattern[currentStep % notePattern.length]],
-          startTime + 0.02,
-          0.28,
-          currentStep % 4 === 0 ? 0.14 : 0.1
-        );
+        bassTone(context, filter, darkBassline[Math.floor(currentStep / 2) % darkBassline.length], startTime + 0.36);
       }
 
       stepIndex += LOOKAHEAD_STEPS;
