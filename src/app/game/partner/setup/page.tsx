@@ -38,6 +38,8 @@ type ExistingProfile = {
   is_active: boolean;
 };
 
+const startingSrdGrant = 370;
+
 const channelLabels: Record<ContactMethod, string> = {
   google: "Google",
   phone: "Phone Number",
@@ -150,6 +152,61 @@ export default function PartnerSetupPage() {
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  const syncCurrentPlayer = async () => {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      throw new Error("Your login session changed. Please log in again.");
+    }
+
+    const { data: existingPlayer, error: existingPlayerError } = await supabase
+      .from("players")
+      .select("id, name, age, country, email")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (existingPlayerError) {
+      throw new Error(existingPlayerError.message || "Could not check your player record.");
+    }
+
+    if (existingPlayer) {
+      const typedPlayer = existingPlayer as PlayerRecord;
+      setPlayer(typedPlayer);
+      return typedPlayer;
+    }
+
+    const fallbackEmail = user.email?.trim().toLowerCase() || "";
+    const fallbackName = displayName.trim() || player?.name || fallbackEmail.split("@")[0] || "Player";
+    const fallbackAge = Math.max(18, Number(age) || player?.age || 18);
+    const fallbackCountry = city.trim() || player?.country || "South Africa";
+
+    const { data: createdPlayer, error: createPlayerError } = await supabase
+      .from("players")
+      .insert({
+        id: user.id,
+        email: fallbackEmail,
+        name: fallbackName,
+        age: fallbackAge,
+        money: startingSrdGrant,
+        country: fallbackCountry,
+        is_online: true,
+        updated_at: new Date().toISOString(),
+      })
+      .select("id, name, age, country, email")
+      .single();
+
+    if (createPlayerError || !createdPlayer) {
+      throw new Error(createPlayerError?.message || "Could not create your player record for photo uploads.");
+    }
+
+    const typedPlayer = createdPlayer as PlayerRecord;
+    setPlayer(typedPlayer);
+    return typedPlayer;
+  };
 
   useEffect(() => {
     const loadSetup = async () => {
@@ -327,6 +384,7 @@ export default function PartnerSetupPage() {
         return;
       }
 
+      await syncCurrentPlayer();
       setContactVerified(true);
       setMessage(`${channelLabels[method]} verification completed.`);
       setStep("location");
@@ -370,18 +428,18 @@ export default function PartnerSetupPage() {
   };
 
   const uploadPhotos = async () => {
-    if (!player) return { primary: photoUrl, gallery: galleryUrls };
+    const currentPlayer = await syncCurrentPlayer();
     if (photoFiles.length === 0) return { primary: photoUrl, gallery: galleryUrls };
 
     const uploadedUrls: string[] = [];
 
     for (const [index, file] of photoFiles.entries()) {
       const extension = file.name.split(".").pop() || "jpg";
-      const filePath = `${player.id}/${Date.now()}-${index}.${extension}`;
+      const filePath = `${currentPlayer.id}/${Date.now()}-${index}.${extension}`;
       const { error: uploadError } = await supabase.storage.from("dating-photos").upload(filePath, file, { upsert: true });
 
       if (uploadError) {
-        throw new Error("Could not upload one of your photos.");
+        throw new Error(`Could not upload one of your photos: ${uploadError.message}`);
       }
 
       const { data: publicUrlData } = supabase.storage.from("dating-photos").getPublicUrl(filePath);
@@ -411,6 +469,7 @@ export default function PartnerSetupPage() {
     setMessage("");
 
     try {
+      const currentPlayer = await syncCurrentPlayer();
       const uploadResult = await uploadPhotos();
       const parsedInterests = interests
         .split(",")
@@ -420,7 +479,7 @@ export default function PartnerSetupPage() {
 
       const { error: upsertError } = await supabase.from("dating_profiles").upsert(
         {
-          user_id: player.id,
+          user_id: currentPlayer.id,
           display_name: displayName.trim(),
           age: Math.max(18, Number(age) || 18),
           city: city.trim(),
