@@ -13,6 +13,23 @@ type PlayerUpdates = {
   education?: number;
 };
 
+type PlayerRow = {
+  id: string;
+  email?: string | null;
+  name?: string | null;
+  country?: string | null;
+  age?: number | null;
+  money?: number | null;
+  health?: number | null;
+  happiness?: number | null;
+  education?: number | null;
+};
+
+type PlayerSyncError = {
+  code?: string;
+  message: string;
+};
+
 type Career = "Unemployed" | "Worker" | "Skilled Pro" | "Manager" | "Executive";
 type House = "None" | "Starter Home" | "Family House" | "Luxury Estate";
 
@@ -50,6 +67,8 @@ const houses: House[] = ["None", "Starter Home", "Family House", "Luxury Estate"
 const startingSrdGrant = 370;
 const moneyLabelFor = (amount: number) => (amount <= startingSrdGrant ? "SASSA SRD Grant" : "Wallet Balance");
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const isMissingRecoveryFunction = (error: PlayerSyncError | null) =>
+  Boolean(error?.code === "PGRST202" || error?.message.toLowerCase().includes("recover_player_for_current_user"));
 const lifeStage = (age: number) =>
   age < 13 ? "Childhood" : age < 20 ? "Teen Years" : age < 36 ? "Young Adult" : age < 61 ? "Prime Years" : "Legacy Era";
 const meterTone = (value: number) => (value >= 75 ? "bg-emerald-400" : value >= 45 ? "bg-amber-400" : "bg-rose-500");
@@ -88,6 +107,36 @@ export default function GamePage() {
     setProgress(next);
   };
 
+  const loadOrRecoverPlayer = async (user: { id: string; email?: string | null }) => {
+    const normalizedEmail = user.email?.trim().toLowerCase() || "";
+    const now = new Date().toISOString();
+    const fallbackPlayer = {
+      id: user.id,
+      email: normalizedEmail,
+      name: normalizedEmail.split("@")[0] || "Player",
+      age: 18,
+      money: startingSrdGrant,
+      country: "South Africa",
+      is_online: true,
+      updated_at: now,
+    };
+
+    const firstLoad = await supabase.from("players").select("*").eq("id", user.id).maybeSingle<PlayerRow>();
+    if (firstLoad.data || firstLoad.error) return firstLoad;
+
+    const recoverByFunction = await supabase.rpc("recover_player_for_current_user");
+    if (recoverByFunction.error && !isMissingRecoveryFunction(recoverByFunction.error)) {
+      return { data: null, error: recoverByFunction.error };
+    }
+
+    if (recoverByFunction.error && isMissingRecoveryFunction(recoverByFunction.error)) {
+      const createFresh = await supabase.from("players").upsert(fallbackPlayer, { onConflict: "id" });
+      if (createFresh.error) return { data: null, error: createFresh.error };
+    }
+
+    return supabase.from("players").select("*").eq("id", user.id).maybeSingle<PlayerRow>();
+  };
+
   const loadPlayer = async () => {
     try {
       setLoadError("");
@@ -103,7 +152,7 @@ export default function GamePage() {
 
       setPlayerId(user.id);
 
-      const { data, error } = await supabase.from("players").select("*").eq("id", user.id).single();
+      const { data, error } = await loadOrRecoverPlayer(user);
       if (error || !data) {
         setEventMessage("Could not load player profile.");
         setLoadError(error?.message || "Player profile missing.");
