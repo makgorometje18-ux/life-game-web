@@ -35,6 +35,8 @@ type ExistingProfile = {
   onboarding_complete: boolean;
   profile_verified: boolean;
   is_photo_verified: boolean;
+  selfie_url: string | null;
+  face_match_score: number | null;
   is_active: boolean;
 };
 
@@ -124,6 +126,77 @@ const normalizePhoneNumber = (value: string, dialCode: string) => {
 
 const phoneProviderHelp =
   "Phone verification is not enabled in Supabase yet. Enable Phone Auth and connect an SMS provider in Supabase, then try again.";
+const faceMatchThreshold = 72;
+const fingerprintSize = 12;
+
+type ImageSource = File | string;
+
+const loadImageElement = (source: ImageSource) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    let objectUrl = "";
+
+    image.onload = () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      reject(new Error("Could not read one of the photos for verification."));
+    };
+
+    if (typeof source === "string") {
+      image.crossOrigin = "anonymous";
+      image.src = source;
+    } else {
+      objectUrl = URL.createObjectURL(source);
+      image.src = objectUrl;
+    }
+  });
+
+const imageFingerprint = async (source: ImageSource) => {
+  const image = await loadImageElement(source);
+  const canvas = document.createElement("canvas");
+  canvas.width = fingerprintSize;
+  canvas.height = fingerprintSize;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+
+  if (!context) throw new Error("Photo verification is not available in this browser.");
+
+  context.drawImage(image, 0, 0, fingerprintSize, fingerprintSize);
+  const pixels = context.getImageData(0, 0, fingerprintSize, fingerprintSize).data;
+  const values: number[] = [];
+
+  for (let index = 0; index < pixels.length; index += 4) {
+    const red = pixels[index] / 255;
+    const green = pixels[index + 1] / 255;
+    const blue = pixels[index + 2] / 255;
+    values.push((red + green + blue) / 3, red - green, blue - green);
+  }
+
+  return values;
+};
+
+const compareFingerprints = (first: number[], second: number[]) => {
+  const length = Math.min(first.length, second.length);
+  if (!length) return 0;
+
+  let difference = 0;
+  for (let index = 0; index < length; index += 1) {
+    difference += Math.abs(first[index] - second[index]);
+  }
+
+  return Math.round(Math.max(0, 100 - (difference / length) * 145));
+};
+
+const compareSelfieToPhotos = async (selfie: ImageSource, profilePhotos: ImageSource[]) => {
+  const selfieFingerprint = await imageFingerprint(selfie);
+  const scores = await Promise.all(
+    profilePhotos.map(async (photo) => compareFingerprints(selfieFingerprint, await imageFingerprint(photo)))
+  );
+
+  return Math.max(...scores, 0);
+};
 
 export default function PartnerSetupPage() {
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
@@ -139,8 +212,11 @@ export default function PartnerSetupPage() {
   const [bio, setBio] = useState("");
   const [interests, setInterests] = useState("");
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  const [selfieFile, setSelfieFile] = useState<File | null>(null);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [photoUrl, setPhotoUrl] = useState("");
+  const [selfieUrl, setSelfieUrl] = useState("");
+  const [faceMatchScore, setFaceMatchScore] = useState<number | null>(null);
   const [verificationCode, setVerificationCode] = useState("");
   const [contactVerified, setContactVerified] = useState(false);
   const [locationLabel, setLocationLabel] = useState("");
@@ -234,9 +310,7 @@ export default function PartnerSetupPage() {
 
         const { data: profileData, error: profileError } = await supabase
           .from("dating_profiles")
-          .select(
-            "display_name, age, city, bio, interests, photo_url, gallery_urls, gender, relationship_goal, preferred_contact_method, contact_value, contact_verified, location_label, latitude, longitude, onboarding_complete, profile_verified, is_photo_verified, is_active"
-          )
+          .select("*")
           .eq("user_id", user.id)
           .maybeSingle();
 
@@ -256,6 +330,8 @@ export default function PartnerSetupPage() {
         setBio(typedProfile?.bio || "");
         setInterests((typedProfile?.interests || []).join(", "));
         setPhotoUrl(typedProfile?.photo_url || "");
+        setSelfieUrl(typedProfile?.selfie_url || "");
+        setFaceMatchScore(typedProfile?.face_match_score ?? null);
         setGalleryUrls(typedProfile?.gallery_urls || []);
         setMethod((typedProfile?.preferred_contact_method as ContactMethod) || (user.app_metadata?.provider === "google" ? "google" : "email"));
         setContactValue(typedProfile?.contact_value || user.email || "");
@@ -425,6 +501,12 @@ export default function PartnerSetupPage() {
 
   const onPhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
     setPhotoFiles(Array.from(event.target.files || []).slice(0, 4));
+    setFaceMatchScore(null);
+  };
+
+  const onSelfieChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setSelfieFile(event.target.files?.[0] || null);
+    setFaceMatchScore(null);
   };
 
   const uploadPhotos = async () => {
@@ -449,6 +531,44 @@ export default function PartnerSetupPage() {
     return { primary: uploadedUrls[0] || photoUrl, gallery: uploadedUrls.length ? uploadedUrls : galleryUrls };
   };
 
+  const uploadSelfie = async () => {
+    const currentPlayer = await syncCurrentPlayer();
+    if (!selfieFile) return selfieUrl;
+
+    const extension = selfieFile.name.split(".").pop() || "jpg";
+    const filePath = `${currentPlayer.id}/selfie-${Date.now()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from("dating-photos").upload(filePath, selfieFile, { upsert: true });
+
+    if (uploadError) {
+      throw new Error(`Could not upload your selfie: ${uploadError.message}`);
+    }
+
+    const { data: publicUrlData } = supabase.storage.from("dating-photos").getPublicUrl(filePath);
+    return publicUrlData.publicUrl;
+  };
+
+  const verifySelfieMatch = async () => {
+    const profilePhotoSources: ImageSource[] = photoFiles.length ? photoFiles : [photoUrl, ...galleryUrls].filter(Boolean);
+    const selfieSource = selfieFile || selfieUrl;
+
+    if (!profilePhotoSources.length) {
+      throw new Error("Upload at least one profile picture before photo verification.");
+    }
+
+    if (!selfieSource) {
+      throw new Error("Take or upload a selfie before photo verification.");
+    }
+
+    const score = await compareSelfieToPhotos(selfieSource, profilePhotoSources);
+    setFaceMatchScore(score);
+
+    if (score < faceMatchThreshold) {
+      throw new Error("The selfie does not look close enough to the uploaded pictures yet. Use clear photos of the same person and try again.");
+    }
+
+    return score;
+  };
+
   const saveProfile = async () => {
     if (!player) return;
     if (!contactVerified) {
@@ -470,7 +590,9 @@ export default function PartnerSetupPage() {
 
     try {
       const currentPlayer = await syncCurrentPlayer();
+      const nextFaceMatchScore = await verifySelfieMatch();
       const uploadResult = await uploadPhotos();
+      const nextSelfieUrl = await uploadSelfie();
       const parsedInterests = interests
         .split(",")
         .map((item) => item.trim())
@@ -487,6 +609,8 @@ export default function PartnerSetupPage() {
           interests: parsedInterests,
           photo_url: uploadResult.primary || null,
           gallery_urls: uploadResult.gallery,
+          selfie_url: nextSelfieUrl || null,
+          face_match_score: nextFaceMatchScore,
           gender,
           relationship_goal: relationshipGoal,
           preferred_contact_method: method,
@@ -497,8 +621,8 @@ export default function PartnerSetupPage() {
           latitude,
           longitude,
           onboarding_complete: true,
-          profile_verified: Boolean(uploadResult.primary),
-          is_photo_verified: Boolean(uploadResult.primary),
+          profile_verified: Boolean(uploadResult.primary && nextSelfieUrl && nextFaceMatchScore >= faceMatchThreshold),
+          is_photo_verified: Boolean(uploadResult.primary && nextSelfieUrl && nextFaceMatchScore >= faceMatchThreshold),
           is_active: isActive,
           updated_at: new Date().toISOString(),
         },
@@ -517,7 +641,9 @@ export default function PartnerSetupPage() {
 
       setPhotoUrl(uploadResult.primary || "");
       setGalleryUrls(uploadResult.gallery);
-      setMessage("Your dating profile is ready. You can now swipe, explore, and chat.");
+      setSelfieUrl(nextSelfieUrl || "");
+      setFaceMatchScore(nextFaceMatchScore);
+      setMessage("Your dating profile is ready and photo verified. You can now swipe, explore, and chat.");
       window.location.href = "/game/partner";
     } catch (saveError) {
       console.error("Dating profile save failed", saveError);
@@ -754,6 +880,21 @@ export default function PartnerSetupPage() {
                     {[photoUrl, ...galleryUrls].filter(Boolean).slice(0, 4).map((url) => (
                       <img key={url} src={url} alt="Dating profile" className="h-36 w-full rounded-2xl object-cover" />
                     ))}
+                  </div>
+                </div>
+                <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4">
+                  <label className="text-xs uppercase tracking-[0.35em] text-white/70">Selfie verification</label>
+                  <input type="file" accept="image/*" capture="user" onChange={onSelfieChange} className="mt-3 block w-full text-sm text-white/75" />
+                  <div className="mt-4 grid gap-3 text-sm text-white/80">
+                    <div className="rounded-2xl bg-black/20 p-3">
+                      Selfie: {selfieFile?.name || (selfieUrl ? "Saved" : "Needed before verified badge")}
+                    </div>
+                    <div className="rounded-2xl bg-black/20 p-3">
+                      Face match: {faceMatchScore === null ? "Not checked yet" : `${faceMatchScore}%`}
+                    </div>
+                    <div className="rounded-2xl bg-black/20 p-3">
+                      Verified badge: {faceMatchScore !== null && faceMatchScore >= faceMatchThreshold ? "Ready" : "Selfie must match your uploaded pictures"}
+                    </div>
                   </div>
                 </div>
                 <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4">

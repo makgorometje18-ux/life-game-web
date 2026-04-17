@@ -21,6 +21,8 @@ create table if not exists public.dating_profiles (
   onboarding_complete boolean not null default false,
   profile_verified boolean not null default false,
   is_photo_verified boolean not null default false,
+  selfie_url text,
+  face_match_score double precision,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -39,6 +41,8 @@ alter table public.dating_profiles add column if not exists longitude double pre
 alter table public.dating_profiles add column if not exists onboarding_complete boolean not null default false;
 alter table public.dating_profiles add column if not exists profile_verified boolean not null default false;
 alter table public.dating_profiles add column if not exists is_photo_verified boolean not null default false;
+alter table public.dating_profiles add column if not exists selfie_url text;
+alter table public.dating_profiles add column if not exists face_match_score double precision;
 
 create table if not exists public.dating_likes (
   id uuid primary key default gen_random_uuid(),

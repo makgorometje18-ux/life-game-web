@@ -40,6 +40,7 @@ type DatingProfile = {
   location_label: string | null;
   profile_verified: boolean;
   is_photo_verified: boolean;
+  selfie_url: string | null;
   is_active: boolean;
   onboarding_complete: boolean;
 };
@@ -79,6 +80,8 @@ const schemaHelp = "Dating tables are missing or outdated. Run the latest SQL in
 const sortPair = (first: string, second: string) => (first < second ? [first, second] : [second, first]);
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
+const isProfileVerified = (profile?: Pick<DatingProfile, "profile_verified" | "is_photo_verified" | "selfie_url">) =>
+  Boolean(profile?.profile_verified && profile.is_photo_verified && profile.selfie_url);
 
 export default function PartnerScenePage() {
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
@@ -137,7 +140,7 @@ export default function PartnerScenePage() {
 
       const { data: ownProfile, error: ownProfileError } = await supabase
         .from("dating_profiles")
-        .select("user_id, display_name, age, city, bio, interests, photo_url, gallery_urls, gender, relationship_goal, location_label, profile_verified, is_photo_verified, is_active, onboarding_complete")
+        .select("*")
         .eq("user_id", user.id)
         .maybeSingle();
 
@@ -154,7 +157,7 @@ export default function PartnerScenePage() {
 
       const { data: allProfiles, error: profilesError } = await supabase
         .from("dating_profiles")
-        .select("user_id, display_name, age, city, bio, interests, photo_url, gallery_urls, gender, relationship_goal, location_label, profile_verified, is_photo_verified, is_active, onboarding_complete")
+        .select("*")
         .neq("user_id", user.id)
         .eq("is_active", true)
         .eq("onboarding_complete", true);
@@ -188,7 +191,7 @@ export default function PartnerScenePage() {
       if (missingIds.length) {
         const { data: fetchedProfiles } = await supabase
           .from("dating_profiles")
-          .select("user_id, display_name, age, city, bio, interests, photo_url, gallery_urls, gender, relationship_goal, location_label, profile_verified, is_photo_verified, is_active, onboarding_complete")
+          .select("*")
           .in("user_id", missingIds);
         matchedProfiles = (fetchedProfiles || []) as DatingProfile[];
       }
@@ -650,7 +653,7 @@ function SwipeCard({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="text-3xl font-black">{profile.display_name}, {profile.age}</h3>
-            {profile.profile_verified ? <span className="rounded-full bg-sky-400 px-2 py-1 text-xs font-bold text-slate-950">Verified</span> : null}
+            {isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-xs font-bold text-slate-950">Verified</span> : null}
           </div>
           <p className="mt-2 text-sm text-white/70">{profile.location_label || profile.city}</p>
         </div>
@@ -694,7 +697,7 @@ function DefaultExploreEmpty() {
 }
 
 function ExploreRow({ profile }: { profile: DatingProfile }) {
-  return <div className="flex gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3"><div className="h-24 w-20 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate text-xl font-bold">{profile.display_name}, {profile.age}</h3>{profile.profile_verified ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{profile.location_label || profile.city}</p><p className="mt-2 line-clamp-2 text-sm text-white/75">{profile.relationship_goal || "Still figuring it out"}</p></div></div>;
+  return <div className="flex gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3"><div className="h-24 w-20 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate text-xl font-bold">{profile.display_name}, {profile.age}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{profile.location_label || profile.city}</p><p className="mt-2 line-clamp-2 text-sm text-white/75">{profile.relationship_goal || "Still figuring it out"}</p></div></div>;
 }
 
 function StatBox({ label, value }: { label: string; value: number }) {
@@ -703,7 +706,7 @@ function StatBox({ label, value }: { label: string; value: number }) {
 
 function MatchRowButton({ profile, onOpen }: { match: MatchRow; playerId: string; profile?: DatingProfile; onOpen: () => void }) {
   if (!profile) return null;
-  return <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left"><div className="h-20 w-16 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex items-center gap-2"><h3 className="text-lg font-bold">{profile.display_name}</h3>{profile.profile_verified ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{profile.relationship_goal || "Still figuring it out"}</p></div></button>;
+  return <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left"><div className="h-20 w-16 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex items-center gap-2"><h3 className="text-lg font-bold">{profile.display_name}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{profile.relationship_goal || "Still figuring it out"}</p></div></button>;
 }
 
 function ChatChip({ profile, active, onOpen }: { match: MatchRow; playerId: string; profile?: DatingProfile; active: boolean; onOpen: () => void }) {
@@ -714,7 +717,7 @@ function ChatChip({ profile, active, onOpen }: { match: MatchRow; playerId: stri
 function ChatPanel({ activeMatchProfile, activeMessages, activePlayerId, chatDraft, setChatDraft, saving, onSend, onCommit }: { activeMatchProfile: DatingProfile; activeMessages: MessageRow[]; activePlayerId: string; chatDraft: string; setChatDraft: (value: string) => void; saving: boolean; onSend: () => void; onCommit: () => void; }) {
   return (
     <>
-      <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-3"><div className="h-16 w-14 overflow-hidden rounded-2xl bg-white/10">{activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}</div><div><div className="flex items-center gap-2"><h3 className="text-xl font-bold">{activeMatchProfile.display_name}, {activeMatchProfile.age}</h3>{activeMatchProfile.profile_verified ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{activeMatchProfile.location_label || activeMatchProfile.city}</p></div></div></div>
+      <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-3"><div className="h-16 w-14 overflow-hidden rounded-2xl bg-white/10">{activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}</div><div><div className="flex items-center gap-2"><h3 className="text-xl font-bold">{activeMatchProfile.display_name}, {activeMatchProfile.age}</h3>{isProfileVerified(activeMatchProfile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{activeMatchProfile.location_label || activeMatchProfile.city}</p></div></div></div>
       <div className="mt-4 max-h-80 space-y-3 overflow-y-auto rounded-[1.8rem] border border-white/10 bg-[#14161d] p-4">{activeMessages.length ? activeMessages.map((message) => <div key={message.id} className={`flex ${message.sender_id === activePlayerId ? "justify-end" : "justify-start"}`}><div className={`max-w-[80%] rounded-[1.5rem] px-4 py-3 text-sm leading-6 ${message.sender_id === activePlayerId ? "bg-pink-500 text-white" : "bg-white/10 text-white/85"}`}>{message.body}</div></div>) : <p className="text-sm text-white/55">No messages yet. Start the conversation.</p>}</div>
       <div className="mt-4 flex gap-3"><input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Send a message" className="flex-1 rounded-full bg-white px-4 py-3 text-black outline-none" /><button onClick={onSend} disabled={saving} className="rounded-full bg-white px-5 py-3 font-semibold text-stone-950 disabled:opacity-60">Send</button></div>
       <button onClick={onCommit} disabled={saving} className="mt-4 w-full rounded-full bg-pink-500 px-5 py-4 font-semibold text-white transition hover:bg-pink-400 disabled:opacity-60">Make It Official</button>
@@ -723,5 +726,5 @@ function ChatPanel({ activeMatchProfile, activeMessages, activePlayerId, chatDra
 }
 
 function OwnProfileCard({ profile, fallbackName, fallbackAge, fallbackCountry }: { profile?: DatingProfile; fallbackName: string; fallbackAge: number; fallbackCountry: string; }) {
-  return <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-4"><div className="flex gap-4"><div className="h-28 w-24 overflow-hidden rounded-[1.5rem] bg-white/10">{profile?.photo_url ? <img src={profile.photo_url} alt="Your dating profile" className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-2xl font-black">{profile?.display_name || fallbackName}, {profile?.age || fallbackAge}</h3>{profile?.profile_verified ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-2 text-sm text-white/65">{profile?.location_label || profile?.city || fallbackCountry}</p><p className="mt-3 text-sm text-white/80">{profile?.relationship_goal || "Still figuring it out"}</p></div></div><p className="mt-4 text-sm leading-7 text-white/80">{profile?.bio || "Finish your profile setup to appear in Swipe and Explore."}</p><div className="mt-4 flex flex-wrap gap-2">{(profile?.interests || []).map((interest) => <span key={interest} className="rounded-full bg-white/10 px-3 py-2 text-xs text-white/75">{interest}</span>)}</div></div>;
+  return <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-4"><div className="flex gap-4"><div className="h-28 w-24 overflow-hidden rounded-[1.5rem] bg-white/10">{profile?.photo_url ? <img src={profile.photo_url} alt="Your dating profile" className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-2xl font-black">{profile?.display_name || fallbackName}, {profile?.age || fallbackAge}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-2 text-sm text-white/65">{profile?.location_label || profile?.city || fallbackCountry}</p><p className="mt-3 text-sm text-white/80">{profile?.relationship_goal || "Still figuring it out"}</p></div></div><p className="mt-4 text-sm leading-7 text-white/80">{profile?.bio || "Finish your profile setup to appear in Swipe and Explore."}</p><div className="mt-4 flex flex-wrap gap-2">{(profile?.interests || []).map((interest) => <span key={interest} className="rounded-full bg-white/10 px-3 py-2 text-xs text-white/75">{interest}</span>)}</div></div>;
 }
