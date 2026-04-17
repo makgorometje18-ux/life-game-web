@@ -465,7 +465,7 @@ export default function PartnerSetupPage() {
               <input
                 value={contactValue}
                 onChange={(event) => setContactValue(event.target.value)}
-                placeholder={method === "phone" ? "0682074981 or +27..." : "name@gmail.com"}
+                placeholder={method === "phone" ? "+27..." : "name@gmail.com"}
                 className="mt-8 w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
               />
               <button
