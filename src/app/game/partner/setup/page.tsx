@@ -50,6 +50,20 @@ const defaultGoalCards = [
   { title: "Still figuring it out", text: "Stay open while learning what feels right." },
 ];
 
+const normalizeSouthAfricanPhone = (value: string) => {
+  const compactValue = value.trim().replace(/[\s()-]/g, "");
+
+  if (!compactValue) return "";
+  if (compactValue.startsWith("+27")) return compactValue;
+  if (compactValue.startsWith("27")) return `+${compactValue}`;
+  if (compactValue.startsWith("0")) return `+27${compactValue.slice(1)}`;
+
+  return compactValue.startsWith("+") ? compactValue : `+${compactValue}`;
+};
+
+const phoneProviderHelp =
+  "Phone verification is not enabled in Supabase yet. Enable Phone Auth and connect an SMS provider in Supabase, then try again.";
+
 export default function PartnerSetupPage() {
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
   const [step, setStep] = useState<SetupStep>("welcome");
@@ -161,10 +175,15 @@ export default function PartnerSetupPage() {
 
   const sendVerificationCode = async () => {
     if (!player) return;
-    const resolvedContact = contactValue.trim();
+    const resolvedContact = method === "phone" ? normalizeSouthAfricanPhone(contactValue) : contactValue.trim();
 
     if (!resolvedContact) {
       setError(method === "phone" ? "Enter your phone number first." : "Enter your email address first.");
+      return;
+    }
+
+    if (method === "phone" && !/^\+\d{10,15}$/.test(resolvedContact)) {
+      setError("Enter your phone number with country code, for example +27...");
       return;
     }
 
@@ -174,14 +193,16 @@ export default function PartnerSetupPage() {
 
     try {
       if (method === "phone") {
+        setContactValue(resolvedContact);
         const { error: otpError } = await supabase.auth.signInWithOtp({
           phone: resolvedContact,
         });
 
         if (otpError) {
           setError(
-            otpError.message ||
-              "Phone verification is not enabled yet in Supabase. Turn on Phone Auth and your SMS provider first."
+            otpError.message.toLowerCase().includes("unsupported phone provider")
+              ? phoneProviderHelp
+              : otpError.message || phoneProviderHelp
           );
           setSaving(false);
           return;
@@ -226,10 +247,11 @@ export default function PartnerSetupPage() {
     setError("");
 
     try {
+      const resolvedContact = method === "phone" ? normalizeSouthAfricanPhone(contactValue) : contactValue.trim();
       const verification =
         method === "phone"
           ? await supabase.auth.verifyOtp({
-              phone: contactValue.trim(),
+              phone: resolvedContact,
               token: verificationCode.trim(),
               type: "sms",
             })
@@ -349,7 +371,7 @@ export default function PartnerSetupPage() {
           gender,
           relationship_goal: relationshipGoal,
           preferred_contact_method: method,
-          contact_value: contactValue.trim(),
+          contact_value: method === "phone" ? normalizeSouthAfricanPhone(contactValue) : contactValue.trim(),
           contact_verified: true,
           verification_completed_at: new Date().toISOString(),
           location_label: locationLabel.trim() || city.trim(),
@@ -466,6 +488,8 @@ export default function PartnerSetupPage() {
                 value={contactValue}
                 onChange={(event) => setContactValue(event.target.value)}
                 placeholder={method === "phone" ? "+27..." : "name@gmail.com"}
+                inputMode={method === "phone" ? "tel" : "email"}
+                autoComplete={method === "phone" ? "tel" : "email"}
                 className="mt-8 w-full rounded-2xl bg-white px-4 py-4 text-lg text-black outline-none"
               />
               <button
