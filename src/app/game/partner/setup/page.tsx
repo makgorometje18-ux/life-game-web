@@ -124,8 +124,12 @@ const normalizePhoneNumber = (value: string, dialCode: string) => {
   return `${dialCode}${compactValue}`;
 };
 
+const normalizeEmailAddress = (value: string) => value.trim().toLowerCase();
+
 const phoneProviderHelp =
   "Phone verification is not enabled in Supabase yet. Enable Phone Auth and connect an SMS provider in Supabase, then try again.";
+const emailProviderHelp =
+  "Use the email address you logged in with. Partner email verification uses your existing verified account so you do not need to wait for another code.";
 const faceMatchThreshold = 72;
 const fingerprintSize = 12;
 
@@ -356,6 +360,8 @@ export default function PartnerSetupPage() {
     setMethod(nextMethod);
     setError("");
     setMessage("");
+    setVerificationCode("");
+    setContactVerified(false);
     if (nextMethod === "google") {
       setContactValue((current) => current || "");
     } else if (nextMethod === "email") {
@@ -368,7 +374,7 @@ export default function PartnerSetupPage() {
 
   const sendVerificationCode = async () => {
     if (!player) return;
-    const resolvedContact = method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : contactValue.trim();
+    const resolvedContact = method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : normalizeEmailAddress(contactValue);
 
     if (!resolvedContact) {
       setError(method === "phone" ? "Enter your phone number first." : "Enter your email address first.");
@@ -401,21 +407,31 @@ export default function PartnerSetupPage() {
           return;
         }
       } else {
-        const { error: otpError } = await supabase.auth.signInWithOtp({
-          email: resolvedContact,
-          options: {
-            shouldCreateUser: false,
-          },
-        });
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        const accountEmail = normalizeEmailAddress(user?.email || "");
 
-        if (otpError) {
-          setError(
-            otpError.message ||
-              "Email OTP could not be sent. Make sure Email OTP is enabled in Supabase and use the email tied to this player account."
-          );
+        if (userError || !user || !accountEmail) {
+          setError("Your login session changed. Please log in again before opening partner finder.");
           setSaving(false);
           return;
         }
+
+        if (resolvedContact !== accountEmail) {
+          setError(emailProviderHelp);
+          setSaving(false);
+          return;
+        }
+
+        setContactValue(accountEmail);
+        setVerificationCode("");
+        setContactVerified(true);
+        setMessage(`${channelLabels[method]} verification completed.`);
+        setStep("location");
+        setSaving(false);
+        return;
       }
 
       setVerificationCode("");
@@ -440,7 +456,7 @@ export default function PartnerSetupPage() {
     setError("");
 
     try {
-      const resolvedContact = method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : contactValue.trim();
+      const resolvedContact = method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : normalizeEmailAddress(contactValue);
       const verification =
         method === "phone"
           ? await supabase.auth.verifyOtp({
@@ -449,7 +465,7 @@ export default function PartnerSetupPage() {
               type: "sms",
             })
           : await supabase.auth.verifyOtp({
-              email: contactValue.trim(),
+              email: resolvedContact,
               token: verificationCode.trim(),
               type: "email",
             });
@@ -614,7 +630,7 @@ export default function PartnerSetupPage() {
           gender,
           relationship_goal: relationshipGoal,
           preferred_contact_method: method,
-          contact_value: method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : contactValue.trim(),
+          contact_value: method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : normalizeEmailAddress(contactValue),
           contact_verified: true,
           verification_completed_at: new Date().toISOString(),
           location_label: locationLabel.trim() || city.trim(),
@@ -726,8 +742,8 @@ export default function PartnerSetupPage() {
                 {method === "phone"
                   ? "Enter your real phone number so we can send a verification code."
                   : method === "google"
-                    ? "Enter your Google email so we can send your verification code."
-                    : "Enter your email address so we can send your verification code."}
+                    ? "Use the Google email you logged in with to verify instantly."
+                    : "Use the email address you logged in with to verify instantly."}
               </p>
               {method === "phone" ? (
                 <div className="mt-8 grid gap-3 sm:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)]">
@@ -774,7 +790,7 @@ export default function PartnerSetupPage() {
                 disabled={saving}
                 className="mt-8 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100 disabled:opacity-60"
               >
-                {saving ? "Sending..." : "Continue"}
+                {saving ? (method === "phone" ? "Sending..." : "Checking...") : "Continue"}
               </button>
             </>
           ) : null}
@@ -873,18 +889,44 @@ export default function PartnerSetupPage() {
                 </div>
                 <textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder="Write a bio that sounds like you." className="min-h-36 rounded-2xl bg-white px-4 py-3 text-black outline-none" />
                 <input value={interests} onChange={(event) => setInterests(event.target.value)} placeholder="Interests separated by commas" className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
-                <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4">
-                  <label className="text-xs uppercase tracking-[0.35em] text-white/70">Upload pictures</label>
-                  <input type="file" accept="image/*" multiple onChange={onPhotoChange} className="mt-3 block w-full text-sm text-white/75" />
+                <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)]">
+                  <p className="text-xs uppercase tracking-[0.35em] text-white/70">Upload pictures</p>
+                  <label className="group mt-4 flex min-h-36 cursor-pointer items-center gap-4 rounded-[1.5rem] border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.18),rgba(255,255,255,0.05)_46%,rgba(0,0,0,0.28))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-pink-300/50 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24),inset_0_-12px_22px_rgba(0,0,0,0.28),0_20px_0_rgba(0,0,0,0.28),0_30px_48px_rgba(0,0,0,0.42)] active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_6px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)]">
+                    <input type="file" accept="image/*" multiple onChange={onPhotoChange} className="sr-only" />
+                    <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-lg font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1">
+                      PIC
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-xl font-black text-white">Choose profile photos</span>
+                      <span className="mt-2 block text-sm leading-6 text-white/72">
+                        {photoFiles.length
+                          ? `${photoFiles.length} new photo${photoFiles.length === 1 ? "" : "s"} ready`
+                          : galleryUrls.length || photoUrl
+                            ? "Tap to replace or add more photos"
+                            : "Tap to open your gallery and upload real pictures"}
+                      </span>
+                    </span>
+                  </label>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     {[photoUrl, ...galleryUrls].filter(Boolean).slice(0, 4).map((url) => (
                       <img key={url} src={url} alt="Dating profile" className="h-36 w-full rounded-2xl object-cover" />
                     ))}
                   </div>
                 </div>
-                <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4">
-                  <label className="text-xs uppercase tracking-[0.35em] text-white/70">Selfie verification</label>
-                  <input type="file" accept="image/*" capture="user" onChange={onSelfieChange} className="mt-3 block w-full text-sm text-white/75" />
+                <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)]">
+                  <p className="text-xs uppercase tracking-[0.35em] text-white/70">Selfie verification</p>
+                  <label className="group mt-4 flex min-h-36 cursor-pointer items-center gap-4 rounded-[1.5rem] border border-sky-200/20 bg-[linear-gradient(145deg,rgba(125,211,252,0.22),rgba(255,255,255,0.06)_48%,rgba(0,0,0,0.34))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-sky-200/60 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24),inset_0_-12px_22px_rgba(0,0,0,0.28),0_20px_0_rgba(0,0,0,0.28),0_30px_48px_rgba(0,0,0,0.42)] active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_6px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)]">
+                    <input type="file" accept="image/*" capture="user" onChange={onSelfieChange} className="sr-only" />
+                    <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-base font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1">
+                      FACE
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-xl font-black text-white">Take verification selfie</span>
+                      <span className="mt-2 block break-words text-sm leading-6 text-white/72">
+                        {selfieFile?.name || (selfieUrl ? "Saved selfie ready for matching" : "Tap to open your camera and prove it is you")}
+                      </span>
+                    </span>
+                  </label>
                   <div className="mt-4 grid gap-3 text-sm text-white/80">
                     <div className="rounded-2xl bg-black/20 p-3">
                       Selfie: {selfieFile?.name || (selfieUrl ? "Saved" : "Needed before verified badge")}
