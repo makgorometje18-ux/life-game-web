@@ -77,6 +77,7 @@ export default function GamePage() {
   const isGameOver = health <= 0 || happiness <= 0;
   const isLegend = age >= 75 && !isGameOver;
   const inJail = progress.jailYears > 0;
+  const outOfFunds = money <= 0;
   const wealth = money >= 15000 ? "Elite" : money >= 5000 ? "Thriving" : money >= 1500 ? "Stable" : "Fragile";
   const moneyLabel = moneyLabelFor(money);
   const progressKey = playerId ? `life-progress:${playerId}` : "";
@@ -234,6 +235,10 @@ export default function GamePage() {
     suffix = ""
   ) => {
     if (saving || isGameOver) return;
+    if (outOfFunds) {
+      sayNo("Your balance is R0. Top up your account before continuing your life path.");
+      return;
+    }
 
     if (nextProgress.jailYears > 0) {
       const released = { ...nextProgress, jailYears: nextProgress.jailYears - 1 };
@@ -286,6 +291,11 @@ export default function GamePage() {
   };
 
   const study = async () => {
+    if (outOfFunds) {
+      sayNo("Your balance is R0. Top up your account before studying.");
+      return;
+    }
+
     if (money < 120) {
       sayNo("You cannot afford tuition right now.");
       return;
@@ -324,6 +334,11 @@ export default function GamePage() {
   };
 
   const marry = async () => {
+    if (outOfFunds) {
+      sayNo("Your balance is R0. Top up your account before using partner finder.");
+      return;
+    }
+
     if (progress.spouse) return sayNo(`You are already married to ${progress.spouse}.`);
     if (age < 18) return sayNo("You want more time before settling down.");
     if (money < 370 || happiness < 45) return sayNo("Dating feels out of reach. Build a little more confidence and money first.");
@@ -442,6 +457,29 @@ export default function GamePage() {
       ) : null}
 
       <div className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-6">
+        {outOfFunds && !isGameOver ? (
+          <section className="rounded-[2rem] border border-rose-300/25 bg-rose-500/12 p-6 shadow-2xl backdrop-blur">
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-rose-100">Account Top Up Needed</p>
+            <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h2 className="text-3xl font-black text-white">Your balance is R0</h2>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-rose-50/85">
+                  You cannot continue the life game until you top up your account. Add wallet balance to unlock the next action.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/game/wallet";
+                }}
+                className="rounded-2xl bg-white px-6 py-3 font-bold text-rose-950 shadow-xl transition hover:bg-rose-50"
+              >
+                Top Up Account
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         <section className="overflow-hidden rounded-[2rem] border border-white/10 bg-black/35 shadow-2xl backdrop-blur">
           <div className="grid gap-6 p-6 md:grid-cols-[1.45fr_0.95fr] md:p-8">
             <div className="space-y-5">
@@ -502,7 +540,7 @@ export default function GamePage() {
                     <p className="mt-2 min-h-16 text-sm leading-6 text-stone-300">{action.text}</p>
                     <button
                       onClick={() => void action.run()}
-                      disabled={isGameOver || saving || action.disabled}
+                      disabled={isGameOver || saving || outOfFunds || action.disabled}
                       className={`mt-4 w-full rounded-2xl px-4 py-3 font-semibold transition disabled:cursor-not-allowed disabled:bg-stone-600 disabled:text-stone-300 ${tone}`}
                     >
                       {action.label}
