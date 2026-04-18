@@ -263,6 +263,7 @@ export default function PartnerSetupPage() {
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [isActive, setIsActive] = useState(true);
+  const [showLocationPermission, setShowLocationPermission] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -524,12 +525,24 @@ export default function PartnerSetupPage() {
     }
   };
 
+  const openLocationPermission = () => {
+    setError("");
+    setMessage("");
+    setShowLocationPermission(true);
+  };
+
   const allowLocation = () => {
     if (!navigator.geolocation) {
       setError("Location is not available in this browser.");
       return;
     }
 
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setError("Live location only works on HTTPS. Open the deployed app link and try Allow again.");
+      return;
+    }
+
+    setShowLocationPermission(false);
     setLocating(true);
     setError("");
     setMessage("");
@@ -884,7 +897,7 @@ export default function PartnerSetupPage() {
               </div>
 
               <button
-                onClick={allowLocation}
+                onClick={openLocationPermission}
                 disabled={locating}
                 className="mt-28 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 shadow-[0_18px_40px_rgba(0,0,0,0.35)] transition hover:bg-stone-100 active:translate-y-1 disabled:opacity-60"
               >
@@ -1020,6 +1033,64 @@ export default function PartnerSetupPage() {
           {error ? <p className="mt-4 w-full break-words rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
         </div>
       </div>
+
+      {showLocationPermission ? (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/72 px-3 pb-8 backdrop-blur-[2px] sm:items-center sm:pb-0">
+          <div className="w-full max-w-sm overflow-hidden rounded-[1.75rem] bg-[#202124] text-white shadow-[0_28px_90px_rgba(0,0,0,0.62)]">
+            <div className="px-6 pb-4 pt-6">
+              <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full border border-white/40">
+                <span className="h-3 w-3 rounded-full border border-white/70"></span>
+              </div>
+              <p className="mt-7 text-lg leading-6 text-white/92">Allow Find a Partner to access this device&apos;s location?</p>
+            </div>
+
+            <div className="relative h-44 overflow-hidden bg-[#252b3d]">
+              <div className="absolute inset-0 opacity-80">
+                <div className="absolute left-[-18%] top-20 h-[2px] w-[145%] -rotate-[22deg] bg-slate-500/45"></div>
+                <div className="absolute left-[-10%] top-32 h-[2px] w-[130%] rotate-[15deg] bg-slate-500/35"></div>
+                <div className="absolute left-[34%] top-[-20%] h-[150%] w-[2px] -rotate-[14deg] bg-slate-500/40"></div>
+                <div className="absolute left-[58%] top-[-15%] h-[145%] w-[2px] rotate-[23deg] bg-slate-500/45"></div>
+                <div className="absolute bottom-[-20%] right-[-15%] h-48 w-48 rounded-full border-[10px] border-slate-500/30"></div>
+              </div>
+              <div className="absolute left-1/2 top-9 -translate-x-1/2 rounded-full bg-lime-300/25 px-5 py-3 text-xs font-black uppercase text-sky-400">
+                Precise location on
+              </div>
+              <div className="absolute left-[60%] top-[50%] h-7 w-7 -translate-x-1/2 rounded-full bg-sky-500 shadow-[0_0_0_5px_rgba(14,165,233,0.14)]">
+                <div className="mx-auto mt-2 h-2 w-2 rounded-full bg-white"></div>
+              </div>
+            </div>
+
+            <div className="grid">
+              <button
+                type="button"
+                onClick={allowLocation}
+                disabled={locating}
+                className="px-6 py-5 text-center text-sm font-black uppercase tracking-[0.08em] text-blue-400 transition hover:bg-white/5 disabled:opacity-60"
+              >
+                Allow only while in use
+              </button>
+              <button
+                type="button"
+                onClick={allowLocation}
+                disabled={locating}
+                className="px-6 py-5 text-center text-sm font-black uppercase tracking-[0.08em] text-blue-400 transition hover:bg-white/5 disabled:opacity-60"
+              >
+                Allow this time only
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLocationPermission(false);
+                  setError("Location access was denied. Tap Allow again when you are ready to share your live location.");
+                }}
+                className="px-6 pb-6 pt-5 text-center text-sm font-black uppercase tracking-[0.08em] text-blue-400 transition hover:bg-white/5"
+              >
+                Deny
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
