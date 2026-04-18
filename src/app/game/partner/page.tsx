@@ -38,6 +38,7 @@ type DatingProfile = {
   gender: string | null;
   relationship_goal: string | null;
   location_label: string | null;
+  contact_verified: boolean;
   profile_verified: boolean;
   is_photo_verified: boolean;
   selfie_url: string | null;
@@ -80,8 +81,8 @@ const schemaHelp = "Dating tables are missing or outdated. Run the latest SQL in
 const sortPair = (first: string, second: string) => (first < second ? [first, second] : [second, first]);
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
-const isProfileVerified = (profile?: Pick<DatingProfile, "profile_verified" | "is_photo_verified" | "selfie_url">) =>
-  Boolean(profile?.profile_verified && profile.is_photo_verified && profile.selfie_url);
+const isProfileVerified = (profile?: Pick<DatingProfile, "contact_verified" | "profile_verified" | "is_photo_verified" | "selfie_url">) =>
+  Boolean(profile?.contact_verified || profile?.profile_verified || (profile?.is_photo_verified && profile.selfie_url));
 
 export default function PartnerScenePage() {
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
@@ -102,6 +103,7 @@ export default function PartnerScenePage() {
   const [activeMatchId, setActiveMatchId] = useState("");
   const [chatDraft, setChatDraft] = useState("");
   const [isLightMode, setIsLightMode] = useState(false);
+  const [matchCelebrationProfile, setMatchCelebrationProfile] = useState<DatingProfile | null>(null);
   const playerMoney = player?.money ?? 0;
   const moneyLabel = moneyLabelFor(playerMoney);
 
@@ -423,9 +425,11 @@ export default function PartnerScenePage() {
 
       if (mutualLike) {
         const [userA, userB] = sortPair(player.id, currentProfile.user_id);
-        const { error: matchInsertError } = await supabase
+        const { data: matchRow, error: matchInsertError } = await supabase
           .from("dating_matches")
-          .upsert({ user_a: userA, user_b: userB }, { onConflict: "user_a,user_b" });
+          .upsert({ user_a: userA, user_b: userB }, { onConflict: "user_a,user_b" })
+          .select("id, user_a, user_b, created_at")
+          .single();
 
         if (matchInsertError) {
           setError(schemaHelp);
@@ -434,8 +438,9 @@ export default function PartnerScenePage() {
         }
 
         setStatus(`It is a match with ${currentProfile.display_name}. You can start chatting now.`);
-        setActiveTab("chat");
-        await loadScene();
+        setMatchCelebrationProfile(currentProfile);
+        advanceStack();
+        await loadScene(matchRow?.id);
       } else {
         setStatus(superLike ? `You gave ${currentProfile.display_name} a strong like.` : `You liked ${currentProfile.display_name}.`);
         advanceStack();
@@ -653,7 +658,76 @@ export default function PartnerScenePage() {
           </button>
         ))}
       </nav>
+
+      {matchCelebrationProfile ? (
+        <MatchCelebration
+          profile={matchCelebrationProfile}
+          onKeepSwiping={() => setMatchCelebrationProfile(null)}
+          onOpenChat={() => {
+            setMatchCelebrationProfile(null);
+            setActiveTab("chat");
+          }}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function MatchCelebration({
+  profile,
+  onKeepSwiping,
+  onOpenChat,
+}: {
+  profile: DatingProfile;
+  onKeepSwiping: () => void;
+  onOpenChat: () => void;
+}) {
+  const hearts = [
+    "left-[8%] top-[12%] text-rose-300",
+    "right-[10%] top-[14%] text-fuchsia-300",
+    "left-[16%] top-[34%] text-sky-300",
+    "right-[16%] top-[38%] text-amber-300",
+    "left-[11%] bottom-[24%] text-pink-400",
+    "right-[12%] bottom-[22%] text-lime-300",
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/82 px-4 py-8 backdrop-blur">
+      <div className="relative w-full max-w-md overflow-hidden rounded-[2rem] border border-white/15 bg-[#15151d] p-5 text-center text-white shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
+        {hearts.map((position, index) => (
+          <span key={position} className={`pointer-events-none absolute text-3xl font-black ${position}`} style={{ transform: `rotate(${index % 2 ? 14 : -12}deg)` }}>
+            &hearts;
+          </span>
+        ))}
+
+        <p className="text-sm uppercase tracking-[0.35em] text-pink-200">It is a match!!</p>
+        <h2 className="mt-3 text-4xl font-black tracking-tight">You and {profile.display_name}</h2>
+
+        <div className="mx-auto mt-6 h-44 w-44 overflow-hidden rounded-full border-4 border-pink-300 bg-white/10 shadow-[0_0_50px_rgba(236,72,153,0.42)]">
+          {profile.photo_url ? (
+            <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-sm text-white/60">No photo</div>
+          )}
+        </div>
+
+        <div className="mt-5 flex items-center justify-center gap-2">
+          <h3 className="text-2xl font-black">{profile.display_name}, {profile.age}</h3>
+          {isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-xs font-bold text-slate-950">Verified</span> : null}
+        </div>
+        <p className="mt-2 text-sm text-white/68">{profile.location_label || profile.city}</p>
+        <p className="mx-auto mt-4 max-w-xs text-sm leading-6 text-white/76">{profile.relationship_goal || "Start with a hello and see where it goes."}</p>
+
+        <div className="mt-7 grid gap-3 sm:grid-cols-2">
+          <button onClick={onOpenChat} className="rounded-full bg-pink-500 px-5 py-4 font-bold text-white shadow-xl transition hover:bg-pink-400">
+            Start Chat
+          </button>
+          <button onClick={onKeepSwiping} className="rounded-full border border-white/15 bg-white/10 px-5 py-4 font-bold text-white transition hover:bg-white/15">
+            Keep Swiping
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -743,10 +817,55 @@ function ChatChip({ profile, active, onOpen }: { match: MatchRow; playerId: stri
 function ChatPanel({ activeMatchProfile, activeMessages, activePlayerId, chatDraft, setChatDraft, saving, onSend, onCommit }: { activeMatchProfile: DatingProfile; activeMessages: MessageRow[]; activePlayerId: string; chatDraft: string; setChatDraft: (value: string) => void; saving: boolean; onSend: () => void; onCommit: () => void; }) {
   return (
     <>
-      <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-3"><div className="h-16 w-14 overflow-hidden rounded-2xl bg-white/10">{activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}</div><div><div className="flex items-center gap-2"><h3 className="text-xl font-bold">{activeMatchProfile.display_name}, {activeMatchProfile.age}</h3>{isProfileVerified(activeMatchProfile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{activeMatchProfile.location_label || activeMatchProfile.city}</p></div></div></div>
-      <div className="mt-4 max-h-80 space-y-3 overflow-y-auto rounded-[1.8rem] border border-white/10 bg-[#14161d] p-4">{activeMessages.length ? activeMessages.map((message) => <div key={message.id} className={`flex ${message.sender_id === activePlayerId ? "justify-end" : "justify-start"}`}><div className={`max-w-[80%] rounded-[1.5rem] px-4 py-3 text-sm leading-6 ${message.sender_id === activePlayerId ? "bg-pink-500 text-white" : "bg-white/10 text-white/85"}`}>{message.body}</div></div>) : <p className="text-sm text-white/55">No messages yet. Start the conversation.</p>}</div>
-      <div className="mt-4 flex gap-3"><input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Send a message" className="flex-1 rounded-full bg-white px-4 py-3 text-black outline-none" /><button onClick={onSend} disabled={saving} className="rounded-full bg-white px-5 py-3 font-semibold text-stone-950 disabled:opacity-60">Send</button></div>
-      <button onClick={onCommit} disabled={saving} className="mt-4 w-full rounded-full bg-pink-500 px-5 py-4 font-semibold text-white transition hover:bg-pink-400 disabled:opacity-60">Make It Official</button>
+      <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/[0.06] p-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="h-20 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10">
+            {activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="break-words text-2xl font-black">{activeMatchProfile.display_name}, {activeMatchProfile.age}</h3>
+              {isProfileVerified(activeMatchProfile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
+            </div>
+            <p className="mt-1 break-words text-sm text-white/65">{activeMatchProfile.location_label || activeMatchProfile.city}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex min-h-72 max-h-[46vh] flex-col gap-3 overflow-y-auto rounded-[1.8rem] border border-white/10 bg-[#11131a] p-4">
+        {activeMessages.length ? (
+          activeMessages.map((message) => {
+            const isOwnMessage = message.sender_id === activePlayerId;
+
+            return (
+              <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[86%] break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-lg ${isOwnMessage ? "bg-pink-500 text-white" : "bg-white/10 text-white/85"}`}>
+                  {message.body}
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="flex flex-1 items-center justify-center rounded-[1.5rem] bg-white/5 p-5 text-center text-sm leading-6 text-white/60">
+            No messages yet. Start the conversation.
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <input
+          value={chatDraft}
+          onChange={(event) => setChatDraft(event.target.value)}
+          placeholder="Send a message"
+          className="min-w-0 rounded-full bg-white px-4 py-4 text-black outline-none"
+        />
+        <button onClick={onSend} disabled={saving} className="rounded-full bg-white px-6 py-4 font-semibold text-stone-950 disabled:opacity-60">
+          Send
+        </button>
+      </div>
+      <button onClick={onCommit} disabled={saving} className="mt-4 w-full rounded-full bg-pink-500 px-5 py-4 font-semibold text-white shadow-xl transition hover:bg-pink-400 disabled:opacity-60">
+        Make It Official
+      </button>
     </>
   );
 }
