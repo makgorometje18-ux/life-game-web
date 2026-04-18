@@ -101,6 +101,7 @@ export default function PartnerScenePage() {
   const [stackIndex, setStackIndex] = useState(0);
   const [activeMatchId, setActiveMatchId] = useState("");
   const [chatDraft, setChatDraft] = useState("");
+  const [isLightMode, setIsLightMode] = useState(false);
   const playerMoney = player?.money ?? 0;
   const moneyLabel = moneyLabelFor(playerMoney);
 
@@ -542,27 +543,36 @@ export default function PartnerScenePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#17181d_0%,#111318_28%,#090a0f_100%)] px-4 py-5 pb-32 text-white">
-      <button type="button" onClick={() => { window.location.href = "/game"; }} className="fixed bottom-24 left-4 z-[80] rounded-full border border-white/15 bg-black/75 px-4 py-3 text-sm font-semibold text-white shadow-xl backdrop-blur transition hover:bg-black/85">Back</button>
+    <main
+      className={`min-h-screen px-4 pb-32 pt-24 transition-colors ${
+        isLightMode
+          ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
+          : "bg-[linear-gradient(180deg,#17181d_0%,#111318_28%,#090a0f_100%)] text-white"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => { window.location.href = "/game"; }}
+        className={`fixed left-4 top-4 z-[80] rounded-full px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur transition ${
+          isLightMode
+            ? "border border-slate-200 bg-white/90 text-slate-950 hover:bg-white"
+            : "border border-white/15 bg-black/75 text-white hover:bg-black/85"
+        }`}
+      >
+        Back
+      </button>
+      <button
+        type="button"
+        onClick={() => setIsLightMode((current) => !current)}
+        className={`fixed right-4 top-4 z-[80] rounded-full px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur transition ${
+          isLightMode ? "bg-blue-600 text-white hover:bg-blue-500" : "bg-white text-slate-950 hover:bg-stone-100"
+        }`}
+      >
+        {isLightMode ? "Dark" : "Light"}
+      </button>
 
       <div className="mx-auto flex w-full max-w-md flex-col gap-5">
-        <section className="rounded-[2rem] border border-white/10 bg-black/35 p-5 shadow-2xl backdrop-blur">
-          <div className="flex items-center gap-3">
-            <GameLogo className="h-12 w-12" />
-            <div>
-              <p className="text-sm uppercase tracking-[0.35em] text-white/50">Partner Finder</p>
-              <h1 className="text-4xl font-black tracking-tight">Real Matches</h1>
-            </div>
-          </div>
-          <div className="mt-5 flex flex-wrap gap-2 text-xs text-white/80">
-            <span className="rounded-full bg-white/10 px-3 py-2">Age {player?.age ?? 18}</span>
-            <span className="rounded-full bg-white/10 px-3 py-2">{moneyLabel} R{playerMoney}</span>
-            <span className="rounded-full bg-white/10 px-3 py-2">Happiness {player?.happiness ?? 0}</span>
-            <span className="rounded-full bg-white/10 px-3 py-2">{matches.length} Match{matches.length === 1 ? "" : "es"}</span>
-          </div>
-          <p className="mt-4 text-sm leading-7 text-white/70">{status}</p>
-          {error ? <p className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
-        </section>
+        {error ? <p className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
 
         {activeTab === "swipe" ? (
           <section className="rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur">
@@ -605,7 +615,23 @@ export default function PartnerScenePage() {
 
         {activeTab === "profile" ? (
           <section className="rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur">
-            <p className="text-sm uppercase tracking-[0.3em] text-white/50">Profile</p>
+            <div className="rounded-[1.7rem] border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center gap-3">
+                <GameLogo className="h-12 w-12" />
+                <div>
+                  <p className="text-sm uppercase tracking-[0.35em] text-white/50">Partner Finder</p>
+                  <h1 className="text-4xl font-black tracking-tight">Real Matches</h1>
+                </div>
+              </div>
+              <div className="mt-5 flex flex-wrap gap-2 text-xs text-white/80">
+                <span className="rounded-full bg-white/10 px-3 py-2">Age {player?.age ?? 18}</span>
+                <span className="rounded-full bg-white/10 px-3 py-2">{moneyLabel} R{playerMoney}</span>
+                <span className="rounded-full bg-white/10 px-3 py-2">Happiness {player?.happiness ?? 0}</span>
+                <span className="rounded-full bg-white/10 px-3 py-2">{matches.length} Match{matches.length === 1 ? "" : "es"}</span>
+              </div>
+              <p className="mt-4 text-sm leading-7 text-white/70">{status}</p>
+            </div>
+            <p className="mt-5 text-sm uppercase tracking-[0.3em] text-white/50">Profile</p>
             <h2 className="mt-2 text-3xl font-bold">Your dating profile</h2>
             <OwnProfileCard profile={profileMap[player?.id || ""]} fallbackName={player?.name || "Player"} fallbackAge={player?.age || 18} fallbackCountry={player?.country || "Unknown"} />
             <button onClick={() => { window.location.href = "/game/partner/setup"; }} className="mt-5 w-full rounded-full bg-white px-5 py-4 font-semibold text-stone-950">Edit Profile</button>

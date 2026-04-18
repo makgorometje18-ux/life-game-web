@@ -264,6 +264,7 @@ export default function PartnerSetupPage() {
   const [longitude, setLongitude] = useState<number | null>(null);
   const [isActive, setIsActive] = useState(true);
   const [showLocationPermission, setShowLocationPermission] = useState(false);
+  const [isLightMode, setIsLightMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -736,7 +737,13 @@ export default function PartnerSetupPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#ff5b7b_0%,#fd3974_22%,#17171b_22%,#0a0b10_100%)] px-4 pb-32 pt-6 text-white sm:px-5">
+    <main
+      className={`min-h-screen px-4 pb-32 pt-24 transition-colors sm:px-5 ${
+        isLightMode
+          ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
+          : "bg-[linear-gradient(180deg,#ff5b7b_0%,#fd3974_22%,#17171b_22%,#0a0b10_100%)] text-white"
+      }`}
+    >
       <button
         type="button"
         onClick={() => {
@@ -749,13 +756,30 @@ export default function PartnerSetupPage() {
           if (step === "location") setStep("verify");
           if (step === "profile") setStep("location");
         }}
-        className="fixed bottom-4 left-4 z-[80] rounded-full border border-white/15 bg-black/75 px-4 py-3 text-sm font-semibold text-white shadow-xl backdrop-blur transition hover:bg-black/85"
+        className={`fixed left-4 top-4 z-[80] rounded-full px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur transition ${
+          isLightMode
+            ? "border border-slate-200 bg-white/90 text-slate-950 hover:bg-white"
+            : "border border-white/15 bg-black/75 text-white hover:bg-black/85"
+        }`}
       >
         Back
       </button>
+      <button
+        type="button"
+        onClick={() => setIsLightMode((current) => !current)}
+        className={`fixed right-4 top-4 z-[80] rounded-full px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur transition ${
+          isLightMode ? "bg-blue-600 text-white hover:bg-blue-500" : "bg-white text-slate-950 hover:bg-stone-100"
+        }`}
+      >
+        {isLightMode ? "Dark" : "Light"}
+      </button>
 
       <div className="mx-auto max-w-lg">
-        <div className="rounded-[2rem] border border-white/10 bg-black/25 p-4 shadow-2xl backdrop-blur sm:p-5">
+        <div
+          className={`rounded-[2rem] p-4 shadow-2xl backdrop-blur sm:p-5 ${
+            isLightMode ? "border border-slate-200 bg-white/82 text-slate-950" : "border border-white/10 bg-black/25 text-white"
+          }`}
+        >
           {step === "welcome" ? (
             <>
               <div className="pt-10 text-center">
