@@ -957,7 +957,7 @@ export default function PartnerScenePage() {
         ) : null}
 
         {activeTab === "chat" ? (
-          <section className={activeMatch ? "overflow-hidden rounded-[2rem] border border-white/10 bg-[#071323] text-white shadow-2xl" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
+          <section className={activeMatch ? "h-[calc(100dvh-11.5rem)] max-h-[42rem] overflow-hidden rounded-[2rem] border border-white/10 bg-[#071323] text-white shadow-2xl" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
             {!activeMatch ? (
               <>
                 <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
@@ -1312,8 +1312,8 @@ function ChatPanel({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   return (
-    <div className="flex min-h-[70vh] flex-col bg-[#071323] text-white">
-      <div className="flex items-center gap-3 border-b border-white/10 bg-[#0b1728] px-4 py-3 shadow-sm">
+    <div className="flex h-full min-h-0 flex-col bg-[#071323] text-white">
+      <div className="shrink-0 flex items-center gap-3 border-b border-white/10 bg-[#0b1728] px-4 py-3 shadow-sm">
         <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-black text-white transition hover:bg-white/15" aria-label="Back to chats">
           &lt;
         </button>
@@ -1347,7 +1347,7 @@ function ChatPanel({
         </div>
       </div>
 
-      <div className="flex max-h-[58vh] min-h-[52vh] flex-1 flex-col gap-4 overflow-y-auto bg-[#071323] px-4 py-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain bg-[#071323] px-4 py-5">
         <p className="text-center text-sm font-bold text-white/45">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
@@ -1380,7 +1380,7 @@ function ChatPanel({
         {isTyping ? <p className="text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
       </div>
 
-      <div className="border-t border-white/10 bg-[#0b1728] px-3 py-3">
+      <div className="shrink-0 border-t border-white/10 bg-[#0b1728] px-3 py-3">
         {showEmojiPicker ? (
           <div className="mb-3 grid grid-cols-8 gap-2 rounded-3xl border border-white/10 bg-[#101d31] p-3 shadow-xl">
             {chatEmojis.map((emoji) => (
