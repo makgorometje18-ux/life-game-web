@@ -88,8 +88,11 @@ const schemaHelp = "Dating tables are missing or outdated. Run the latest SQL in
 const sortPair = (first: string, second: string) => (first < second ? [first, second] : [second, first]);
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
+const chatImagePrefix = "[chat-image]";
 const isProfileVerified = (profile?: Pick<DatingProfile, "contact_verified" | "profile_verified" | "is_photo_verified" | "selfie_url">) =>
   Boolean(profile?.contact_verified || profile?.profile_verified || (profile?.is_photo_verified && profile.selfie_url));
+const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
+const chatImageUrl = (body: string) => body.replace(chatImagePrefix, "");
 const formatLastSeen = (value?: string | null) => {
   if (!value) return "Last seen recently";
 
@@ -153,6 +156,11 @@ export default function PartnerScenePage() {
         setLoading(false);
         return;
       }
+
+      void supabase
+        .from("players")
+        .update({ is_online: true, updated_at: new Date().toISOString() })
+        .eq("id", user.id);
 
       const stored = window.localStorage.getItem(`life-progress:${user.id}`);
       let extra = baseProgress;
@@ -282,6 +290,26 @@ export default function PartnerScenePage() {
   useEffect(() => {
     void loadScene();
   }, []);
+
+  useEffect(() => {
+    if (!player) return;
+
+    const markOnline = () => {
+      void supabase.from("players").update({ is_online: true, updated_at: new Date().toISOString() }).eq("id", player.id);
+    };
+    const markOffline = () => {
+      void supabase.from("players").update({ is_online: false, updated_at: new Date().toISOString() }).eq("id", player.id);
+    };
+
+    markOnline();
+    window.addEventListener("focus", markOnline);
+    window.addEventListener("pagehide", markOffline);
+
+    return () => {
+      window.removeEventListener("focus", markOnline);
+      window.removeEventListener("pagehide", markOffline);
+    };
+  }, [player]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -603,6 +631,45 @@ export default function PartnerScenePage() {
     }
   };
 
+  const sendChatImage = async (file: File) => {
+    if (!player || !activeMatch || !file.type.startsWith("image/")) return;
+    setSaving(true);
+    setError("");
+
+    try {
+      const extension = file.name.split(".").pop() || "jpg";
+      const filePath = `${player.id}/chat-${activeMatch.id}-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("dating-photos").upload(filePath, file, { upsert: true });
+
+      if (uploadError) {
+        setError(`Could not upload picture: ${uploadError.message}`);
+        setSaving(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from("dating-photos").getPublicUrl(filePath);
+      const { error: sendError } = await supabase.from("dating_messages").insert({
+        match_id: activeMatch.id,
+        sender_id: player.id,
+        body: `${chatImagePrefix}${publicUrlData.publicUrl}`,
+      });
+
+      if (sendError) {
+        setError(schemaHelp);
+        setSaving(false);
+        return;
+      }
+
+      setStatus(`Picture sent to ${activeMatchProfile?.display_name || "your match"}.`);
+      await loadScene(activeMatch.id);
+    } catch (sendError) {
+      console.error("Dating picture message failed", sendError);
+      setError("Could not send the picture right now.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const makeItOfficial = async () => {
     if (!player || !activeMatchProfile || saving) return;
     setSaving(true);
@@ -750,10 +817,14 @@ export default function PartnerScenePage() {
                 onCommit={() => void makeItOfficial()}
                 onBack={() => {
                   setActiveMatchId("");
-                  setChatDraft("");
+                setChatDraft("");
                 }}
                 presence={presenceMap[activeMatchProfile.user_id]}
                 isTyping={Boolean(typingByMatch[activeMatch.id])}
+                onImageSend={(file) => void sendChatImage(file)}
+                onStartCall={(kind) => {
+                  setError(`${kind === "video" ? "Video call" : "Voice call"} is coming soon.`);
+                }}
               />
             ) : matches.length ? (
               <div className="mt-5 space-y-3">
@@ -995,14 +1066,14 @@ function ChatListButton({
     <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left transition hover:bg-white/10">
       <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10">
         {profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}
-        <span className={`absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#181a21] ${isOnline ? "bg-emerald-400" : "bg-zinc-500"}`}></span>
+        <span className={`absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#181a21] ${isOnline ? "bg-emerald-400" : "bg-red-500"}`}></span>
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <h3 className="truncate text-xl font-black">{profile.display_name}, {profile.age}</h3>
           {isProfileVerified(profile) ? <span className="shrink-0 rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
         </div>
-        <p className="mt-1 text-sm text-white/65">{presenceLabel} · {profile.location_label || profile.city}</p>
+        <p className="mt-1 text-sm text-white/65">{presenceLabel} - {profile.location_label || profile.city}</p>
       </div>
       {unreadCount ? (
         <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-black text-white">
@@ -1025,6 +1096,8 @@ function ChatPanel({
   onBack,
   presence,
   isTyping,
+  onImageSend,
+  onStartCall,
 }: {
   activeMatchProfile: DatingProfile;
   activeMessages: MessageRow[];
@@ -1037,6 +1110,8 @@ function ChatPanel({
   onBack: () => void;
   presence?: PlayerPresence;
   isTyping: boolean;
+  onImageSend: (file: File) => void;
+  onStartCall: (kind: "voice" | "video") => void;
 }) {
   const isOnline = Boolean(presence?.is_online);
   const presenceLabel = isTyping ? "Typing..." : isOnline ? "Online" : formatLastSeen(presence?.last_seen_at);
@@ -1044,20 +1119,30 @@ function ChatPanel({
   return (
     <>
       <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/[0.06] p-4">
-        <button onClick={onBack} className="mb-4 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white">
-          Back to chats
-        </button>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <button onClick={onBack} className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white">
+            Back to chats
+          </button>
+          <div className="flex gap-2">
+            <button onClick={() => onStartCall("voice")} className="rounded-full bg-white/10 px-3 py-2 text-sm font-bold text-white">
+              Call
+            </button>
+            <button onClick={() => onStartCall("video")} className="rounded-full bg-white/10 px-3 py-2 text-sm font-bold text-white">
+              Video
+            </button>
+          </div>
+        </div>
         <div className="flex min-w-0 items-center gap-3">
           <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10">
             {activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}
-            <span className={`absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#181a21] ${isOnline ? "bg-emerald-400" : "bg-zinc-500"}`}></span>
+            <span className={`absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#181a21] ${isOnline ? "bg-emerald-400" : "bg-red-500"}`}></span>
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="break-words text-2xl font-black">{activeMatchProfile.display_name}, {activeMatchProfile.age}</h3>
               {isProfileVerified(activeMatchProfile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
             </div>
-            <p className="mt-1 break-words text-sm text-white/65">{presenceLabel} · {activeMatchProfile.location_label || activeMatchProfile.city}</p>
+            <p className="mt-1 break-words text-sm text-white/65">{presenceLabel} - {activeMatchProfile.location_label || activeMatchProfile.city}</p>
           </div>
         </div>
       </div>
@@ -1070,9 +1155,15 @@ function ChatPanel({
             return (
               <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
                 <div>
-                  <div className={`max-w-[86vw] break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-lg sm:max-w-[20rem] ${isOwnMessage ? "bg-pink-500 text-white" : "bg-white/10 text-white/85"}`}>
-                    {message.body}
-                  </div>
+                  {isChatImageMessage(message.body) ? (
+                    <div className={`max-w-[72vw] overflow-hidden rounded-[1.35rem] shadow-lg sm:max-w-[18rem] ${isOwnMessage ? "bg-pink-500/20" : "bg-white/10"}`}>
+                      <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-72 w-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className={`max-w-[86vw] break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-lg sm:max-w-[20rem] ${isOwnMessage ? "bg-pink-500 text-white" : "bg-white/10 text-white/85"}`}>
+                      {message.body}
+                    </div>
+                  )}
                   {isOwnMessage ? (
                     <p className="mt-1 text-right text-[11px] font-semibold text-white/45">{message.read_at ? "Seen" : "Sent"}</p>
                   ) : null}
@@ -1088,7 +1179,21 @@ function ChatPanel({
         {isTyping ? <p className="text-sm font-semibold text-pink-200">{activeMatchProfile.display_name} is typing...</p> : null}
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="mt-4 grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+        <label className="flex cursor-pointer items-center justify-center rounded-full bg-white/10 px-5 py-4 font-black text-white transition hover:bg-white/15">
+          Pic
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            disabled={saving}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) onImageSend(file);
+            }}
+          />
+        </label>
         <input
           value={chatDraft}
           onChange={(event) => setChatDraft(event.target.value)}
