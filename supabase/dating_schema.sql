@@ -43,6 +43,7 @@ alter table public.dating_profiles add column if not exists profile_verified boo
 alter table public.dating_profiles add column if not exists is_photo_verified boolean not null default false;
 alter table public.dating_profiles add column if not exists selfie_url text;
 alter table public.dating_profiles add column if not exists face_match_score double precision;
+alter table public.dating_profiles add column if not exists is_active boolean not null default true;
 
 create table if not exists public.dating_likes (
   id uuid primary key default gen_random_uuid(),

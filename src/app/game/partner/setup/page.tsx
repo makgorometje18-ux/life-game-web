@@ -130,6 +130,7 @@ const phoneProviderHelp =
   "Phone verification is not enabled in Supabase yet. Enable Phone Auth and connect an SMS provider in Supabase, then try again.";
 const emailProviderHelp =
   "Use the email address you logged in with. Partner email verification uses your existing verified account so you do not need to wait for another code.";
+const missingIsActiveColumnCode = "PGRST204";
 const faceMatchThreshold = 72;
 const fingerprintSize = 12;
 
@@ -615,38 +616,50 @@ export default function PartnerSetupPage() {
         .filter(Boolean)
         .slice(0, 10);
 
-      const { error: upsertError } = await supabase.from("dating_profiles").upsert(
-        {
-          user_id: currentPlayer.id,
-          display_name: displayName.trim(),
-          age: Math.max(18, Number(age) || 18),
-          city: city.trim(),
-          bio: bio.trim(),
-          interests: parsedInterests,
-          photo_url: uploadResult.primary || null,
-          gallery_urls: uploadResult.gallery,
-          selfie_url: nextSelfieUrl || null,
-          face_match_score: nextFaceMatchScore,
-          gender,
-          relationship_goal: relationshipGoal,
-          preferred_contact_method: method,
-          contact_value: method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : normalizeEmailAddress(contactValue),
-          contact_verified: true,
-          verification_completed_at: new Date().toISOString(),
-          location_label: locationLabel.trim() || city.trim(),
-          latitude,
-          longitude,
-          onboarding_complete: true,
-          profile_verified: Boolean(uploadResult.primary && nextSelfieUrl && nextFaceMatchScore >= faceMatchThreshold),
-          is_photo_verified: Boolean(uploadResult.primary && nextSelfieUrl && nextFaceMatchScore >= faceMatchThreshold),
-          is_active: isActive,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      );
+      const profilePayload = {
+        user_id: currentPlayer.id,
+        display_name: displayName.trim(),
+        age: Math.max(18, Number(age) || 18),
+        city: city.trim(),
+        bio: bio.trim(),
+        interests: parsedInterests,
+        photo_url: uploadResult.primary || null,
+        gallery_urls: uploadResult.gallery,
+        selfie_url: nextSelfieUrl || null,
+        face_match_score: nextFaceMatchScore,
+        gender,
+        relationship_goal: relationshipGoal,
+        preferred_contact_method: method,
+        contact_value: method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : normalizeEmailAddress(contactValue),
+        contact_verified: true,
+        verification_completed_at: new Date().toISOString(),
+        location_label: locationLabel.trim() || city.trim(),
+        latitude,
+        longitude,
+        onboarding_complete: true,
+        profile_verified: Boolean(uploadResult.primary && nextSelfieUrl && nextFaceMatchScore >= faceMatchThreshold),
+        is_photo_verified: Boolean(uploadResult.primary && nextSelfieUrl && nextFaceMatchScore >= faceMatchThreshold),
+        is_active: isActive,
+        updated_at: new Date().toISOString(),
+      };
+
+      let { error: upsertError } = await supabase.from("dating_profiles").upsert(profilePayload, { onConflict: "user_id" });
+
+      if (
+        upsertError &&
+        (upsertError.code === missingIsActiveColumnCode || upsertError.message.toLowerCase().includes("is_active"))
+      ) {
+        const profilePayloadWithoutActiveState = { ...profilePayload } as Partial<typeof profilePayload>;
+        delete profilePayloadWithoutActiveState.is_active;
+        const retryResult = await supabase
+          .from("dating_profiles")
+          .upsert(profilePayloadWithoutActiveState, { onConflict: "user_id" });
+        upsertError = retryResult.error;
+      }
 
       if (upsertError) {
-        setError("Could not save dating profile. Run the latest SQL in supabase/dating_schema.sql first.");
+        console.error("Dating profile upsert failed", upsertError);
+        setError(upsertError.message || "Could not save dating profile. Run the latest SQL in supabase/dating_schema.sql first.");
         setSaving(false);
         return;
       }
@@ -678,7 +691,7 @@ export default function PartnerSetupPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#ff5b7b_0%,#fd3974_22%,#17171b_22%,#0a0b10_100%)] px-5 py-6 text-white">
+    <main className="min-h-screen bg-[linear-gradient(180deg,#ff5b7b_0%,#fd3974_22%,#17171b_22%,#0a0b10_100%)] px-4 pb-32 pt-6 text-white sm:px-5">
       <button
         type="button"
         onClick={() => {
@@ -696,8 +709,8 @@ export default function PartnerSetupPage() {
         Back
       </button>
 
-      <div className="mx-auto max-w-md">
-        <div className="rounded-[2rem] border border-white/10 bg-black/20 p-5 shadow-2xl backdrop-blur">
+      <div className="mx-auto max-w-lg">
+        <div className="rounded-[2rem] border border-white/10 bg-black/25 p-4 shadow-2xl backdrop-blur sm:p-5">
           {step === "welcome" ? (
             <>
               <div className="pt-10 text-center">
@@ -863,7 +876,7 @@ export default function PartnerSetupPage() {
           {step === "profile" ? (
             <>
               <p className="text-sm uppercase tracking-[0.35em] text-white/60">Create Profile</p>
-              <h1 className="mt-4 text-4xl font-black tracking-tight">Build a real dating profile</h1>
+              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">Build a real dating profile</h1>
               <p className="mt-4 text-sm leading-7 text-white/75">
                 Add your real details, relationship goals, live location, and your own pictures. Verified profiles stand out under swipe and explore.
               </p>
@@ -889,16 +902,16 @@ export default function PartnerSetupPage() {
                 </div>
                 <textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder="Write a bio that sounds like you." className="min-h-36 rounded-2xl bg-white px-4 py-3 text-black outline-none" />
                 <input value={interests} onChange={(event) => setInterests(event.target.value)} placeholder="Interests separated by commas" className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
-                <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)]">
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)] sm:rounded-[2rem]">
                   <p className="text-xs uppercase tracking-[0.35em] text-white/70">Upload pictures</p>
-                  <label className="group mt-4 flex min-h-36 cursor-pointer items-center gap-4 rounded-[1.5rem] border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.18),rgba(255,255,255,0.05)_46%,rgba(0,0,0,0.28))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-pink-300/50 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24),inset_0_-12px_22px_rgba(0,0,0,0.28),0_20px_0_rgba(0,0,0,0.28),0_30px_48px_rgba(0,0,0,0.42)] active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_6px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)]">
+                  <label className="group mt-4 flex min-h-36 cursor-pointer flex-col gap-4 rounded-[1.5rem] border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.18),rgba(255,255,255,0.05)_46%,rgba(0,0,0,0.28))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-pink-300/50 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]">
                     <input type="file" accept="image/*" multiple onChange={onPhotoChange} className="sr-only" />
-                    <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-lg font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1">
+                    <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-base font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1 sm:h-20 sm:w-20 sm:text-lg">
                       PIC
                     </span>
-                    <span className="min-w-0">
-                      <span className="block text-xl font-black text-white">Choose profile photos</span>
-                      <span className="mt-2 block text-sm leading-6 text-white/72">
+                    <span className="min-w-0 max-w-full">
+                      <span className="block text-lg font-black leading-tight text-white sm:text-xl">Choose profile photos</span>
+                      <span className="mt-2 block break-words text-sm leading-6 text-white/72">
                         {photoFiles.length
                           ? `${photoFiles.length} new photo${photoFiles.length === 1 ? "" : "s"} ready`
                           : galleryUrls.length || photoUrl
@@ -913,45 +926,54 @@ export default function PartnerSetupPage() {
                     ))}
                   </div>
                 </div>
-                <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)]">
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)] sm:rounded-[2rem]">
                   <p className="text-xs uppercase tracking-[0.35em] text-white/70">Selfie verification</p>
-                  <label className="group mt-4 flex min-h-36 cursor-pointer items-center gap-4 rounded-[1.5rem] border border-sky-200/20 bg-[linear-gradient(145deg,rgba(125,211,252,0.22),rgba(255,255,255,0.06)_48%,rgba(0,0,0,0.34))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-sky-200/60 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24),inset_0_-12px_22px_rgba(0,0,0,0.28),0_20px_0_rgba(0,0,0,0.28),0_30px_48px_rgba(0,0,0,0.42)] active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_6px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)]">
+                  <label className="group mt-4 flex min-h-36 cursor-pointer flex-col gap-4 rounded-[1.5rem] border border-sky-200/20 bg-[linear-gradient(145deg,rgba(125,211,252,0.22),rgba(255,255,255,0.06)_48%,rgba(0,0,0,0.34))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-sky-200/60 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]">
                     <input type="file" accept="image/*" capture="user" onChange={onSelfieChange} className="sr-only" />
-                    <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-base font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1">
+                    <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-sm font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1 sm:h-20 sm:w-20 sm:text-base">
                       FACE
                     </span>
-                    <span className="min-w-0">
-                      <span className="block text-xl font-black text-white">Take verification selfie</span>
+                    <span className="min-w-0 max-w-full">
+                      <span className="block text-lg font-black leading-tight text-white sm:text-xl">Take verification selfie</span>
                       <span className="mt-2 block break-words text-sm leading-6 text-white/72">
                         {selfieFile?.name || (selfieUrl ? "Saved selfie ready for matching" : "Tap to open your camera and prove it is you")}
                       </span>
                     </span>
                   </label>
                   <div className="mt-4 grid gap-3 text-sm text-white/80">
-                    <div className="rounded-2xl bg-black/20 p-3">
+                    <div className="break-words rounded-2xl bg-black/20 p-3">
                       Selfie: {selfieFile?.name || (selfieUrl ? "Saved" : "Needed before verified badge")}
                     </div>
                     <div className="rounded-2xl bg-black/20 p-3">
                       Face match: {faceMatchScore === null ? "Not checked yet" : `${faceMatchScore}%`}
                     </div>
-                    <div className="rounded-2xl bg-black/20 p-3">
+                    <div className="break-words rounded-2xl bg-black/20 p-3">
                       Verified badge: {faceMatchScore !== null && faceMatchScore >= faceMatchThreshold ? "Ready" : "Selfie must match your uploaded pictures"}
                     </div>
                   </div>
                 </div>
-                <div className="rounded-[2rem] border border-white/10 bg-white/8 p-4">
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/8 p-4 sm:rounded-[2rem]">
                   <p className="text-xs uppercase tracking-[0.35em] text-white/70">Verification & location</p>
                   <div className="mt-3 grid gap-3 text-sm text-white/80">
-                    <div className="rounded-2xl bg-black/20 p-3">Verified channel: {channelLabels[method]}</div>
-                    <div className="rounded-2xl bg-black/20 p-3">Contact: {contactValue}</div>
-                    <div className="rounded-2xl bg-black/20 p-3">Live location: {locationLabel || "Captured from browser permission"}</div>
+                    <div className="rounded-2xl bg-black/20 p-3">
+                      <span className="block text-xs uppercase tracking-[0.18em] text-white/45">Verified channel</span>
+                      <span className="mt-1 block break-words text-white/85">{channelLabels[method]}</span>
+                    </div>
+                    <div className="rounded-2xl bg-black/20 p-3">
+                      <span className="block text-xs uppercase tracking-[0.18em] text-white/45">Contact</span>
+                      <span className="mt-1 block break-words text-white/85">{contactValue}</span>
+                    </div>
+                    <div className="rounded-2xl bg-black/20 p-3">
+                      <span className="block text-xs uppercase tracking-[0.18em] text-white/45">Live location</span>
+                      <span className="mt-1 block break-words text-white/85">{locationLabel || "Captured from browser permission"}</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <label className="mt-6 flex items-center gap-3 text-sm text-white/85">
-                <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
-                Show my profile under Swipe and Explore
+              <label className="mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/8 p-4 text-sm leading-6 text-white/85">
+                <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} className="mt-1 shrink-0" />
+                <span>Show my profile under Swipe and Explore</span>
               </label>
 
               <button

@@ -159,7 +159,6 @@ export default function PartnerScenePage() {
         .from("dating_profiles")
         .select("*")
         .neq("user_id", user.id)
-        .eq("is_active", true)
         .eq("onboarding_complete", true);
 
       if (profilesError) {
@@ -184,7 +183,8 @@ export default function PartnerScenePage() {
 
       const typedMatches = (matchRows || []) as MatchRow[];
       const partnerIds = typedMatches.map((row) => (row.user_a === user.id ? row.user_b : row.user_a));
-      const mergedProfiles = [...((allProfiles || []) as DatingProfile[]), ownProfile as DatingProfile];
+      const visibleProfiles = ((allProfiles || []) as DatingProfile[]).filter((profile) => profile.is_active ?? true);
+      const mergedProfiles = [...visibleProfiles, ownProfile as DatingProfile];
       const missingIds = partnerIds.filter((id) => !mergedProfiles.some((profile) => profile.user_id === id));
       let matchedProfiles: DatingProfile[] = [];
 
