@@ -127,7 +127,7 @@ const normalizePhoneNumber = (value: string, dialCode: string) => {
 const normalizeEmailAddress = (value: string) => value.trim().toLowerCase();
 
 const phoneProviderHelp =
-  "Phone verification is not enabled in Supabase yet. Enable Phone Auth and connect an SMS provider in Supabase, then try again.";
+  "Phone verification needs Supabase Phone Auth and an SMS provider enabled. Check Supabase Auth phone settings, then try again.";
 const emailProviderHelp =
   "Use the email address you logged in with. Partner email verification uses your existing verified account so you do not need to wait for another code.";
 const missingIsActiveColumnCode = "PGRST204";
@@ -431,13 +431,13 @@ export default function PartnerSetupPage() {
     try {
       if (method === "phone") {
         setContactValue(resolvedContact);
-        const { error: otpError } = await supabase.auth.signInWithOtp({
+        const { error: otpError } = await supabase.auth.updateUser({
           phone: resolvedContact,
         });
 
         if (otpError) {
           setError(
-            otpError.message.toLowerCase().includes("unsupported phone provider")
+            otpError.message.toLowerCase().includes("phone provider")
               ? phoneProviderHelp
               : otpError.message || phoneProviderHelp
           );
@@ -473,7 +473,11 @@ export default function PartnerSetupPage() {
       }
 
       setVerificationCode("");
-      setMessage(`A verification code was sent to ${resolvedContact}.`);
+      setMessage(
+        method === "phone"
+          ? `A phone verification code was sent to ${resolvedContact}.`
+          : `A verification code was sent to ${resolvedContact}.`
+      );
       setStep("verify");
     } catch (sendError) {
       console.error("Partner verification send failed", sendError);
@@ -500,7 +504,7 @@ export default function PartnerSetupPage() {
           ? await supabase.auth.verifyOtp({
               phone: resolvedContact,
               token: verificationCode.trim(),
-              type: "sms",
+              type: "phone_change",
             })
           : await supabase.auth.verifyOtp({
               email: resolvedContact,
