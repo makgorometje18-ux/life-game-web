@@ -444,7 +444,12 @@ export default function PartnerScenePage() {
       current.map((message) => (unreadMessageIds.includes(message.id) ? { ...message, read_at: readAt } : message))
     );
 
-    void supabase.from("dating_messages").update({ read_at: readAt }).in("id", unreadMessageIds);
+    void supabase
+      .from("dating_messages")
+      .update({ read_at: readAt })
+      .eq("match_id", activeMatchId)
+      .neq("sender_id", player.id)
+      .is("read_at", null);
   }, [activeMatchId, activeTab, messages, player]);
 
   useEffect(() => {
@@ -551,6 +556,27 @@ export default function PartnerScenePage() {
   }, [messages, player]);
   const totalUnreadCount = Object.values(unreadCounts).reduce((total, count) => total + count, 0);
   const exploreProfiles = profiles.slice(0, 8);
+
+  const markMatchAsRead = (matchId: string) => {
+    if (!player) return;
+
+    const hasUnread = messages.some((message) => message.match_id === matchId && message.sender_id !== player.id && !message.read_at);
+    if (!hasUnread) return;
+
+    const readAt = new Date().toISOString();
+    setMessages((current) =>
+      current.map((message) =>
+        message.match_id === matchId && message.sender_id !== player.id && !message.read_at ? { ...message, read_at: readAt } : message
+      )
+    );
+
+    void supabase
+      .from("dating_messages")
+      .update({ read_at: readAt })
+      .eq("match_id", matchId)
+      .neq("sender_id", player.id)
+      .is("read_at", null);
+  };
 
   const goalCards = useMemo(() => {
     const counts = profiles.reduce<Record<string, number>>((accumulator, profile) => {
@@ -926,12 +952,12 @@ export default function PartnerScenePage() {
               <StatBox label="People who liked you" value={likedMeIds.length} />
               <StatBox label="People you liked" value={likedIds.length} />
             </div>
-            <div className="mt-6 space-y-3">{matches.map((match) => <MatchRowButton key={match.id} match={match} playerId={player?.id || ""} profile={profileMap[match.user_a === player?.id ? match.user_b : match.user_a]} onOpen={() => { setActiveMatchId(match.id); setActiveTab("chat"); }} />)}</div>
+            <div className="mt-6 space-y-3">{matches.map((match) => <MatchRowButton key={match.id} match={match} playerId={player?.id || ""} profile={profileMap[match.user_a === player?.id ? match.user_b : match.user_a]} onOpen={() => { markMatchAsRead(match.id); setActiveMatchId(match.id); setActiveTab("chat"); }} />)}</div>
           </section>
         ) : null}
 
         {activeTab === "chat" ? (
-          <section className={activeMatch ? "overflow-hidden rounded-[2rem] border border-slate-200 bg-white text-slate-950 shadow-2xl" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
+          <section className={activeMatch ? "overflow-hidden rounded-[2rem] border border-white/10 bg-[#071323] text-white shadow-2xl" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
             {!activeMatch ? (
               <>
                 <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
@@ -975,7 +1001,10 @@ export default function PartnerScenePage() {
                       profile={profile}
                       unreadCount={unreadCounts[match.id] || 0}
                       presence={profile ? presenceMap[profile.user_id] : undefined}
-                      onOpen={() => setActiveMatchId(match.id)}
+                      onOpen={() => {
+                        markMatchAsRead(match.id);
+                        setActiveMatchId(match.id);
+                      }}
                     />
                   );
                 })}
@@ -1283,44 +1312,44 @@ function ChatPanel({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   return (
-    <div className="flex min-h-[70vh] flex-col bg-white text-slate-950">
-      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-black text-slate-700 transition hover:bg-slate-200" aria-label="Back to chats">
+    <div className="flex min-h-[70vh] flex-col bg-[#071323] text-white">
+      <div className="flex items-center gap-3 border-b border-white/10 bg-[#0b1728] px-4 py-3 shadow-sm">
+        <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-black text-white transition hover:bg-white/15" aria-label="Back to chats">
           &lt;
         </button>
 
-        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-200">
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-white/10">
           {activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}
-          <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500" : "bg-red-500"}`}></span>
+          <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-[#0b1728] ${isOnline ? "bg-emerald-500" : "bg-red-500"}`}></span>
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1">
-            <h3 className="truncate text-xl font-bold leading-tight text-slate-950">{activeMatchProfile.display_name}</h3>
+            <h3 className="truncate text-xl font-bold leading-tight text-white">{activeMatchProfile.display_name}</h3>
             {isProfileVerified(activeMatchProfile) ? <span className="shrink-0 rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-bold text-white">Verified</span> : null}
-            <span className="text-sm font-black text-purple-600">v</span>
+            <span className="text-sm font-black text-sky-300">v</span>
           </div>
-          <p className="truncate text-sm font-medium text-slate-500">{presenceLabel}</p>
+          <p className="truncate text-sm font-medium text-white/55">{presenceLabel}</p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 text-purple-600">
-          <button onClick={() => onStartCall("voice")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-purple-50" aria-label="Start voice call">
+        <div className="flex shrink-0 items-center gap-1 text-sky-300">
+          <button onClick={() => onStartCall("voice")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10" aria-label="Start voice call">
             <PhoneIcon />
           </button>
-          <button onClick={() => onStartCall("video")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-purple-50" aria-label="Start video call">
+          <button onClick={() => onStartCall("video")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10" aria-label="Start video call">
             <VideoIcon />
           </button>
-          <button className="hidden h-10 w-10 items-center justify-center rounded-full text-2xl font-black transition hover:bg-purple-50 sm:flex" aria-label="Minimize chat">
+          <button className="hidden h-10 w-10 items-center justify-center rounded-full text-2xl font-black transition hover:bg-white/10 sm:flex" aria-label="Minimize chat">
             -
           </button>
-          <button onClick={onBack} className="flex h-10 w-10 items-center justify-center rounded-full text-2xl font-light transition hover:bg-purple-50" aria-label="Close chat">
+          <button onClick={onBack} className="flex h-10 w-10 items-center justify-center rounded-full text-2xl font-light transition hover:bg-white/10" aria-label="Close chat">
             x
           </button>
         </div>
       </div>
 
-      <div className="flex max-h-[58vh] min-h-[52vh] flex-1 flex-col gap-4 overflow-y-auto bg-white px-4 py-6">
-        <p className="text-center text-sm font-bold text-slate-500">{dividerLabel}</p>
+      <div className="flex max-h-[58vh] min-h-[52vh] flex-1 flex-col gap-4 overflow-y-auto bg-[#071323] px-4 py-6">
+        <p className="text-center text-sm font-bold text-white/45">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
             const isOwnMessage = message.sender_id === activePlayerId;
@@ -1329,32 +1358,32 @@ function ChatPanel({
               <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[78%] ${isOwnMessage ? "items-end" : "items-start"} flex flex-col`}>
                   {isChatImageMessage(message.body) ? (
-                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm">
+                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/10 shadow-sm">
                       <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" />
                     </div>
                   ) : (
-                    <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-[#a100ff] text-white" : "bg-slate-100 text-slate-900"}`}>
+                    <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
                       {message.body}
                     </div>
                   )}
                   {isOwnMessage ? (
-                    <p className="mt-1 text-right text-[12px] font-medium text-slate-500">{formatMessageStamp(message)}</p>
+                    <p className="mt-1 text-right text-[12px] font-medium text-white/45">{formatMessageStamp(message)}</p>
                   ) : null}
                 </div>
               </div>
             );
           })
         ) : (
-          <div className="flex flex-1 items-center justify-center rounded-[1.5rem] bg-slate-50 p-5 text-center text-sm leading-6 text-slate-500">
+          <div className="flex flex-1 items-center justify-center rounded-[1.5rem] bg-white/5 p-5 text-center text-sm leading-6 text-white/55">
             No messages yet. Start the conversation.
           </div>
         )}
-        {isTyping ? <p className="text-sm font-semibold text-purple-600">{activeMatchProfile.display_name} is typing...</p> : null}
+        {isTyping ? <p className="text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
       </div>
 
-      <div className="border-t border-slate-200 bg-white px-3 py-3">
+      <div className="border-t border-white/10 bg-[#0b1728] px-3 py-3">
         {showEmojiPicker ? (
-          <div className="mb-3 grid grid-cols-8 gap-2 rounded-3xl border border-slate-200 bg-white p-3 shadow-xl">
+          <div className="mb-3 grid grid-cols-8 gap-2 rounded-3xl border border-white/10 bg-[#101d31] p-3 shadow-xl">
             {chatEmojis.map((emoji) => (
               <button
                 key={emoji}
@@ -1363,7 +1392,7 @@ function ChatPanel({
                   setChatDraft(`${chatDraft}${emoji}`);
                   setShowEmojiPicker(false);
                 }}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-xl transition hover:bg-blue-50"
+                className="flex h-9 w-9 items-center justify-center rounded-full text-xl transition hover:bg-white/10"
                 aria-label={`Add ${emoji}`}
               >
                 {emoji}
@@ -1373,10 +1402,10 @@ function ChatPanel({
         ) : null}
 
         <div className="flex items-center gap-2">
-          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50" aria-label="Record voice message">
+          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Record voice message">
             <MicIcon />
           </button>
-          <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50" aria-label="Send picture">
+          <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Send picture">
             <PhotoIcon />
             <input
               type="file"
@@ -1390,10 +1419,10 @@ function ChatPanel({
               }}
             />
           </label>
-          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50 sm:flex" aria-label="Send sticker">
+          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10 sm:flex" aria-label="Send sticker">
             <span className="rounded-md border-2 border-current px-1 text-xs font-black">S</span>
           </button>
-          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-black text-blue-600 transition hover:bg-blue-50 sm:flex" aria-label="Send GIF">
+          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-black text-sky-300 transition hover:bg-white/10 sm:flex" aria-label="Send GIF">
             GIF
           </button>
           <input
@@ -1403,16 +1432,16 @@ function ChatPanel({
               if (event.key === "Enter" && !event.shiftKey) onSend();
             }}
             placeholder="Aa"
-            className="min-w-0 flex-1 rounded-full bg-slate-100 px-4 py-3 text-slate-950 outline-none placeholder:text-slate-500"
+            className="min-w-0 flex-1 rounded-full bg-white/10 px-4 py-3 text-white outline-none placeholder:text-white/45"
           />
-          <button onClick={() => setShowEmojiPicker((current) => !current)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50" aria-label="Choose emoji">
+          <button onClick={() => setShowEmojiPicker((current) => !current)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Choose emoji">
             <SmileIcon />
           </button>
           <button onClick={chatDraft.trim() ? onSend : () => onQuickSend("\u{1F44D}")} disabled={saving} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
             {chatDraft.trim() ? "Send" : <ThumbIcon />}
           </button>
         </div>
-        <button onClick={onCommit} disabled={saving} className="mt-3 w-full rounded-full bg-[#a100ff] px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-purple-600 disabled:opacity-60">
+        <button onClick={onCommit} disabled={saving} className="mt-3 w-full rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:opacity-60">
           Make It Official
         </button>
       </div>
