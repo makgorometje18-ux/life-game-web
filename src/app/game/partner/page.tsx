@@ -89,6 +89,7 @@ const sortPair = (first: string, second: string) => (first < second ? [first, se
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
 const chatImagePrefix = "[chat-image]";
+const chatEmojis = ["😀", "😂", "😍", "😘", "🥰", "😎", "😢", "😡", "🔥", "❤️", "👍", "🙏", "🎉", "💯", "👀", "✨"];
 const isProfileVerified = (profile?: Pick<DatingProfile, "contact_verified" | "profile_verified" | "is_photo_verified" | "selfie_url">) =>
   Boolean(profile?.contact_verified || profile?.profile_verified || (profile?.is_photo_verified && profile.selfie_url));
 const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
@@ -318,18 +319,25 @@ export default function PartnerScenePage() {
     if (!player) return;
 
     const markOnline = () => {
+      setPresenceMap((current) => ({ ...current, [player.id]: { is_online: true, last_seen_at: new Date().toISOString() } }));
       void supabase.from("players").update({ is_online: true, updated_at: new Date().toISOString() }).eq("id", player.id);
     };
     const markOffline = () => {
+      setPresenceMap((current) => ({ ...current, [player.id]: { is_online: false, last_seen_at: new Date().toISOString() } }));
       void supabase.from("players").update({ is_online: false, updated_at: new Date().toISOString() }).eq("id", player.id);
+    };
+    const syncVisibility = () => {
+      if (document.visibilityState === "visible") markOnline();
     };
 
     markOnline();
     window.addEventListener("focus", markOnline);
+    document.addEventListener("visibilitychange", syncVisibility);
     window.addEventListener("pagehide", markOffline);
 
     return () => {
       window.removeEventListener("focus", markOnline);
+      document.removeEventListener("visibilitychange", syncVisibility);
       window.removeEventListener("pagehide", markOffline);
     };
   }, [player]);
@@ -356,6 +364,71 @@ export default function PartnerScenePage() {
 
     return () => window.clearInterval(interval);
   }, [activeMatchId, player]);
+
+  useEffect(() => {
+    if (!player) return;
+
+    const matchIds = matches.map((match) => match.id);
+    const presenceIds = Array.from(new Set([player.id, ...matches.map((match) => (match.user_a === player.id ? match.user_b : match.user_a))]));
+
+    const mergeMessage = (row: MessageRow) => {
+      setMessages((current) => {
+        const next = current.some((message) => message.id === row.id)
+          ? current.map((message) => (message.id === row.id ? { ...message, ...row } : message))
+          : [...current, row];
+
+        return next.sort((first, second) => new Date(first.created_at).getTime() - new Date(second.created_at).getTime());
+      });
+    };
+
+    const refreshChatState = async () => {
+      if (presenceIds.length) {
+        const { data: presenceRows } = await supabase.from("players").select("id, is_online, updated_at").in("id", presenceIds);
+        setPresenceMap((current) => ({
+          ...current,
+          ...((presenceRows || []) as Array<{ id: string; is_online: boolean | null; updated_at: string | null }>).reduce<Record<string, PlayerPresence>>(
+            (accumulator, row) => {
+              accumulator[row.id] = { is_online: Boolean(row.is_online), last_seen_at: row.updated_at };
+              return accumulator;
+            },
+            {}
+          ),
+        }));
+      }
+
+      if (matchIds.length) {
+        const { data: fetchedMessages } = await supabase
+          .from("dating_messages")
+          .select("id, match_id, sender_id, body, created_at, read_at")
+          .in("match_id", matchIds)
+          .order("created_at", { ascending: true });
+
+        if (fetchedMessages) setMessages(fetchedMessages as MessageRow[]);
+      }
+    };
+
+    const channel = supabase
+      .channel(`dating-live-${player.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dating_messages" }, (payload) => {
+        const row = payload.new as MessageRow | null;
+        if (!row?.match_id || !matchIds.includes(row.match_id)) return;
+        mergeMessage(row);
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "players" }, (payload) => {
+        const row = payload.new as { id?: string; is_online?: boolean | null; updated_at?: string | null };
+        if (!row.id || !presenceIds.includes(row.id)) return;
+        setPresenceMap((current) => ({ ...current, [row.id as string]: { is_online: Boolean(row.is_online), last_seen_at: row.updated_at || null } }));
+      })
+      .subscribe();
+
+    const interval = window.setInterval(refreshChatState, activeTab === "chat" ? 5000 : 12000);
+    void refreshChatState();
+
+    return () => {
+      window.clearInterval(interval);
+      void supabase.removeChannel(channel);
+    };
+  }, [activeTab, matches, player]);
 
   useEffect(() => {
     if (!player || activeTab !== "chat" || !activeMatchId) return;
@@ -625,29 +698,60 @@ export default function PartnerScenePage() {
     }
   };
 
-  const sendMessage = async () => {
-    if (!player || !activeMatch || !chatDraft.trim()) return;
+  const sendMessage = async (quickBody?: string) => {
+    const body = (quickBody || chatDraft).trim();
+    if (!player || !activeMatch || !body) return;
     setSaving(true);
     setError("");
+    const tempId = `temp-${Date.now()}`;
+    const tempMessage: MessageRow = {
+      id: tempId,
+      match_id: activeMatch.id,
+      sender_id: player.id,
+      body,
+      created_at: new Date().toISOString(),
+      read_at: null,
+    };
+    const shouldClearDraft = !quickBody;
 
     try {
-      const { error: sendError } = await supabase.from("dating_messages").insert({
-        match_id: activeMatch.id,
-        sender_id: player.id,
-        body: chatDraft.trim(),
-      });
+      setMessages((current) => [...current, tempMessage]);
+      if (shouldClearDraft) setChatDraft("");
+
+      const { data: sentMessage, error: sendError } = await supabase
+        .from("dating_messages")
+        .insert({
+          match_id: activeMatch.id,
+          sender_id: player.id,
+          body,
+        })
+        .select("id, match_id, sender_id, body, created_at, read_at")
+        .single();
 
       if (sendError) {
+        setMessages((current) => current.filter((message) => message.id !== tempId));
+        if (shouldClearDraft) setChatDraft(body);
         setError(schemaHelp);
         setSaving(false);
         return;
       }
 
-      setChatDraft("");
+      if (sentMessage) {
+        setMessages((current) => {
+          const typedMessage = sentMessage as MessageRow;
+          if (current.some((message) => message.id === typedMessage.id)) {
+            return current.filter((message) => message.id !== tempId);
+          }
+
+          return current.map((message) => (message.id === tempId ? typedMessage : message));
+        });
+      }
+
       setStatus(`Message sent to ${activeMatchProfile?.display_name || "your match"}.`);
-      await loadScene(activeMatch.id);
     } catch (sendError) {
       console.error("Dating message failed", sendError);
+      setMessages((current) => current.filter((message) => message.id !== tempId));
+      if (shouldClearDraft) setChatDraft(body);
       setError("Could not send the message right now.");
     } finally {
       setSaving(false);
@@ -671,11 +775,15 @@ export default function PartnerScenePage() {
       }
 
       const { data: publicUrlData } = supabase.storage.from("dating-photos").getPublicUrl(filePath);
-      const { error: sendError } = await supabase.from("dating_messages").insert({
-        match_id: activeMatch.id,
-        sender_id: player.id,
-        body: `${chatImagePrefix}${publicUrlData.publicUrl}`,
-      });
+      const { data: sentMessage, error: sendError } = await supabase
+        .from("dating_messages")
+        .insert({
+          match_id: activeMatch.id,
+          sender_id: player.id,
+          body: `${chatImagePrefix}${publicUrlData.publicUrl}`,
+        })
+        .select("id, match_id, sender_id, body, created_at, read_at")
+        .single();
 
       if (sendError) {
         setError(schemaHelp);
@@ -683,8 +791,10 @@ export default function PartnerScenePage() {
         return;
       }
 
+      if (sentMessage) {
+        setMessages((current) => (current.some((message) => message.id === sentMessage.id) ? current : [...current, sentMessage as MessageRow]));
+      }
       setStatus(`Picture sent to ${activeMatchProfile?.display_name || "your match"}.`);
-      await loadScene(activeMatch.id);
     } catch (sendError) {
       console.error("Dating picture message failed", sendError);
       setError("Could not send the picture right now.");
@@ -841,6 +951,7 @@ export default function PartnerScenePage() {
                 setChatDraft={setChatDraft}
                 saving={saving}
                 onSend={() => void sendMessage()}
+                onQuickSend={(body) => void sendMessage(body)}
                 onCommit={() => void makeItOfficial()}
                 onBack={() => {
                   setActiveMatchId("");
@@ -1111,6 +1222,30 @@ function ChatListButton({
   );
 }
 
+function PhoneIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true"><path d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2v3.5c0 .7-.5 1.2-1.2 1.2C10.5 21.9 2.1 13.5 2.1 3.4c0-.7.5-1.2 1.2-1.2h3.5c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-1.7 2.2z" /></svg>;
+}
+
+function VideoIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true"><path d="M4 6.5C4 5.1 5.1 4 6.5 4h7C14.9 4 16 5.1 16 6.5v1.7l3.5-2.1c.9-.5 2 .1 2 1.1v9.6c0 1-1.1 1.6-2 1.1L16 15.8v1.7c0 1.4-1.1 2.5-2.5 2.5h-7C5.1 20 4 18.9 4 17.5v-11z" /></svg>;
+}
+
+function MicIcon({ className = "h-6 w-6" }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true"><path d="M12 14.5c1.7 0 3-1.3 3-3V5c0-1.7-1.3-3-3-3S9 3.3 9 5v6.5c0 1.7 1.3 3 3 3z" /><path d="M18.5 11.5c0 3.2-2.4 5.8-5.5 6.2V21h3v2H8v-2h3v-3.3c-3.1-.5-5.5-3.1-5.5-6.2h2c0 2.5 2 4.5 4.5 4.5s4.5-2 4.5-4.5h2z" /></svg>;
+}
+
+function PhotoIcon({ className = "h-6 w-6" }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true"><path d="M5 4h14c1.7 0 3 1.3 3 3v10c0 1.7-1.3 3-3 3H5c-1.7 0-3-1.3-3-3V7c0-1.7 1.3-3 3-3zm3 6.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.5 6.2c.1.7.7 1.3 1.5 1.3h12c.7 0 1.3-.5 1.5-1.2l-4.1-4.4c-.5-.5-1.3-.5-1.8 0L11 15l-1.4-1.4c-.5-.5-1.3-.5-1.8.1l-3.3 3z" /></svg>;
+}
+
+function SmileIcon({ className = "h-6 w-6" }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-3.2 8.1c-.7 0-1.2-.5-1.2-1.2s.5-1.2 1.2-1.2S10 8.2 10 8.9s-.5 1.2-1.2 1.2zm6.4 0c-.7 0-1.2-.5-1.2-1.2s.5-1.2 1.2-1.2 1.2.5 1.2 1.2-.5 1.2-1.2 1.2zM12 17.4c-2.3 0-4.2-1.3-5.1-3.2h2.2c.7.8 1.7 1.2 2.9 1.2s2.2-.4 2.9-1.2h2.2c-.9 1.9-2.8 3.2-5.1 3.2z" /></svg>;
+}
+
+function ThumbIcon({ className = "h-6 w-6" }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true"><path d="M2 10.5C2 9.7 2.7 9 3.5 9H6v12H3.5C2.7 21 2 20.3 2 19.5v-9zM8 21V8.7l4.6-5.1c.8-.9 2.4-.4 2.4.9V9h4.7c1.5 0 2.6 1.4 2.2 2.8l-1.8 6.8c-.4 1.4-1.6 2.4-3.1 2.4H8z" /></svg>;
+}
+
 function ChatPanel({
   activeMatchProfile,
   activeMessages,
@@ -1119,6 +1254,7 @@ function ChatPanel({
   setChatDraft,
   saving,
   onSend,
+  onQuickSend,
   onCommit,
   onBack,
   presence,
@@ -1133,6 +1269,7 @@ function ChatPanel({
   setChatDraft: (value: string) => void;
   saving: boolean;
   onSend: () => void;
+  onQuickSend: (body: string) => void;
   onCommit: () => void;
   onBack: () => void;
   presence?: PlayerPresence;
@@ -1143,12 +1280,13 @@ function ChatPanel({
   const isOnline = Boolean(presence?.is_online);
   const presenceLabel = isTyping ? "Typing..." : isOnline ? "Online" : formatLastSeen(presence?.last_seen_at);
   const dividerLabel = formatChatDivider(activeMessages[0]?.created_at);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   return (
     <div className="flex min-h-[70vh] flex-col bg-white text-slate-950">
       <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
         <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-black text-slate-700 transition hover:bg-slate-200" aria-label="Back to chats">
-          ‹
+          &lt;
         </button>
 
         <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-200">
@@ -1160,23 +1298,23 @@ function ChatPanel({
           <div className="flex min-w-0 items-center gap-1">
             <h3 className="truncate text-xl font-bold leading-tight text-slate-950">{activeMatchProfile.display_name}</h3>
             {isProfileVerified(activeMatchProfile) ? <span className="shrink-0 rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-bold text-white">Verified</span> : null}
-            <span className="text-lg font-black text-purple-600">⌄</span>
+            <span className="text-sm font-black text-purple-600">v</span>
           </div>
           <p className="truncate text-sm font-medium text-slate-500">{presenceLabel}</p>
         </div>
 
         <div className="flex shrink-0 items-center gap-1 text-purple-600">
-          <button onClick={() => onStartCall("voice")} className="flex h-10 w-10 items-center justify-center rounded-full text-lg font-black transition hover:bg-purple-50" aria-label="Start voice call">
-            ☎
+          <button onClick={() => onStartCall("voice")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-purple-50" aria-label="Start voice call">
+            <PhoneIcon />
           </button>
-          <button onClick={() => onStartCall("video")} className="flex h-10 w-10 items-center justify-center rounded-full text-lg font-black transition hover:bg-purple-50" aria-label="Start video call">
-            ■
+          <button onClick={() => onStartCall("video")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-purple-50" aria-label="Start video call">
+            <VideoIcon />
           </button>
           <button className="hidden h-10 w-10 items-center justify-center rounded-full text-2xl font-black transition hover:bg-purple-50 sm:flex" aria-label="Minimize chat">
             -
           </button>
-          <button onClick={onBack} className="flex h-10 w-10 items-center justify-center rounded-full text-3xl font-light transition hover:bg-purple-50" aria-label="Close chat">
-            ×
+          <button onClick={onBack} className="flex h-10 w-10 items-center justify-center rounded-full text-2xl font-light transition hover:bg-purple-50" aria-label="Close chat">
+            x
           </button>
         </div>
       </div>
@@ -1215,12 +1353,31 @@ function ChatPanel({
       </div>
 
       <div className="border-t border-slate-200 bg-white px-3 py-3">
+        {showEmojiPicker ? (
+          <div className="mb-3 grid grid-cols-8 gap-2 rounded-3xl border border-slate-200 bg-white p-3 shadow-xl">
+            {chatEmojis.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => {
+                  setChatDraft(`${chatDraft}${emoji}`);
+                  setShowEmojiPicker(false);
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-xl transition hover:bg-blue-50"
+                aria-label={`Add ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <div className="flex items-center gap-2">
-          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-blue-600 transition hover:bg-blue-50" aria-label="Record voice message">
-            Mic
+          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50" aria-label="Record voice message">
+            <MicIcon />
           </button>
-          <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-black text-blue-600 transition hover:bg-blue-50" aria-label="Send picture">
-            Pic
+          <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50" aria-label="Send picture">
+            <PhotoIcon />
             <input
               type="file"
               accept="image/*"
@@ -1233,10 +1390,10 @@ function ChatPanel({
               }}
             />
           </label>
-          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-blue-600 transition hover:bg-blue-50 sm:flex" aria-label="Send sticker">
-            Stk
+          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50 sm:flex" aria-label="Send sticker">
+            <span className="rounded-md border-2 border-current px-1 text-xs font-black">S</span>
           </button>
-          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-blue-600 transition hover:bg-blue-50 sm:flex" aria-label="Send GIF">
+          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-black text-blue-600 transition hover:bg-blue-50 sm:flex" aria-label="Send GIF">
             GIF
           </button>
           <input
@@ -1248,11 +1405,11 @@ function ChatPanel({
             placeholder="Aa"
             className="min-w-0 flex-1 rounded-full bg-slate-100 px-4 py-3 text-slate-950 outline-none placeholder:text-slate-500"
           />
-          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-black text-blue-600 transition hover:bg-blue-50" aria-label="Choose emoji">
-            :)
+          <button onClick={() => setShowEmojiPicker((current) => !current)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50" aria-label="Choose emoji">
+            <SmileIcon />
           </button>
-          <button onClick={chatDraft.trim() ? onSend : undefined} disabled={saving} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
-            {chatDraft.trim() ? "Send" : "Like"}
+          <button onClick={chatDraft.trim() ? onSend : () => onQuickSend("\u{1F44D}")} disabled={saving} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
+            {chatDraft.trim() ? "Send" : <ThumbIcon />}
           </button>
         </div>
         <button onClick={onCommit} disabled={saving} className="mt-3 w-full rounded-full bg-[#a100ff] px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-purple-600 disabled:opacity-60">
@@ -1262,7 +1419,6 @@ function ChatPanel({
     </div>
   );
 }
-
 function OwnProfileCard({ profile, fallbackName, fallbackAge, fallbackCountry }: { profile?: DatingProfile; fallbackName: string; fallbackAge: number; fallbackCountry: string; }) {
   return <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-4"><div className="flex gap-4"><div className="h-28 w-24 overflow-hidden rounded-[1.5rem] bg-white/10">{profile?.photo_url ? <img src={profile.photo_url} alt="Your dating profile" className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-2xl font-black">{profile?.display_name || fallbackName}, {profile?.age || fallbackAge}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-2 text-sm text-white/65">{profile?.location_label || profile?.city || fallbackCountry}</p><p className="mt-3 text-sm text-white/80">{profile?.relationship_goal || "Still figuring it out"}</p></div></div><p className="mt-4 text-sm leading-7 text-white/80">{profile?.bio || "Finish your profile setup to appear in Swipe and Explore."}</p><div className="mt-4 flex flex-wrap gap-2">{(profile?.interests || []).map((interest) => <span key={interest} className="rounded-full bg-white/10 px-3 py-2 text-xs text-white/75">{interest}</span>)}</div></div>;
 }
