@@ -1318,9 +1318,11 @@ function ChatPanel({
           &lt;
         </button>
 
-        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-white/10">
-          {activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}
-          <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-[#0b1728] ${isOnline ? "bg-emerald-500" : "bg-red-500"}`}></span>
+        <div className="relative h-12 w-12 shrink-0">
+          <div className="h-full w-full overflow-hidden rounded-full bg-white/10">
+            {activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}
+          </div>
+          <span className={`absolute bottom-0 right-0 z-10 h-4 w-4 rounded-full border-[3px] border-[#0b1728] ${isOnline ? "bg-emerald-500" : "bg-red-500"}`}></span>
         </div>
 
         <div className="min-w-0 flex-1">
@@ -1341,9 +1343,6 @@ function ChatPanel({
           </button>
           <button className="hidden h-10 w-10 items-center justify-center rounded-full text-2xl font-black transition hover:bg-white/10 sm:flex" aria-label="Minimize chat">
             -
-          </button>
-          <button onClick={onBack} className="flex h-10 w-10 items-center justify-center rounded-full text-2xl font-light transition hover:bg-white/10" aria-label="Close chat">
-            x
           </button>
         </div>
       </div>
