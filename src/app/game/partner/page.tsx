@@ -331,11 +331,13 @@ export default function PartnerScenePage() {
     };
 
     markOnline();
+    const heartbeat = window.setInterval(markOnline, 15000);
     window.addEventListener("focus", markOnline);
     document.addEventListener("visibilitychange", syncVisibility);
     window.addEventListener("pagehide", markOffline);
 
     return () => {
+      window.clearInterval(heartbeat);
       window.removeEventListener("focus", markOnline);
       document.removeEventListener("visibilitychange", syncVisibility);
       window.removeEventListener("pagehide", markOffline);
@@ -429,6 +431,48 @@ export default function PartnerScenePage() {
       void supabase.removeChannel(channel);
     };
   }, [activeTab, matches, player]);
+
+  useEffect(() => {
+    if (!player) return;
+
+    const presenceIds = Array.from(new Set([player.id, ...matches.map((match) => (match.user_a === player.id ? match.user_b : match.user_a))]));
+    const channel = supabase.channel("dating-online-presence", { config: { presence: { key: player.id } } });
+    const syncPresenceState = () => {
+      const state = channel.presenceState() as Record<string, Array<{ user_id?: string; online_at?: string }>>;
+      const onlineIds = new Set(
+        Object.values(state)
+          .flat()
+          .map((entry) => entry.user_id)
+          .filter(Boolean) as string[]
+      );
+
+      setPresenceMap((current) => {
+        const next = { ...current };
+        presenceIds.forEach((id) => {
+          next[id] = {
+            is_online: onlineIds.has(id),
+            last_seen_at: onlineIds.has(id) ? new Date().toISOString() : next[id]?.last_seen_at || null,
+          };
+        });
+        return next;
+      });
+    };
+
+    channel
+      .on("presence", { event: "sync" }, syncPresenceState)
+      .on("presence", { event: "join" }, syncPresenceState)
+      .on("presence", { event: "leave" }, syncPresenceState)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          void channel.track({ user_id: player.id, online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      void channel.untrack();
+      void supabase.removeChannel(channel);
+    };
+  }, [matches, player]);
 
   useEffect(() => {
     if (!player || activeTab !== "chat" || !activeMatchId) return;
@@ -896,7 +940,7 @@ export default function PartnerScenePage() {
 
   return (
     <main
-      className={`min-h-screen px-4 pb-32 pt-24 transition-colors ${
+      className={`min-h-screen px-4 pb-32 pt-24 transition-colors ${activeMatch ? "overflow-hidden" : ""} ${
         isLightMode
           ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
           : "bg-[linear-gradient(180deg,#17181d_0%,#111318_28%,#090a0f_100%)] text-white"
@@ -957,7 +1001,7 @@ export default function PartnerScenePage() {
         ) : null}
 
         {activeTab === "chat" ? (
-          <section className={activeMatch ? "h-[calc(100dvh-11.5rem)] max-h-[42rem] overflow-hidden rounded-[2rem] border border-white/10 bg-[#071323] text-white shadow-2xl" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
+          <section className={activeMatch ? "fixed bottom-[5.7rem] left-1/2 top-[5.2rem] z-[60] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 overflow-hidden rounded-[2rem] border border-white/10 bg-[#071323] text-white shadow-2xl" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
             {!activeMatch ? (
               <>
                 <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
