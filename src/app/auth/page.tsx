@@ -18,6 +18,17 @@ const isMissingRecoveryFunction = (error: PlayerSyncError | null) =>
 const isDuplicateEmailError = (error: PlayerSyncError | null) =>
   Boolean(error?.code === "23505" && error?.message.includes("players_email_key"));
 
+const authNetworkMessage =
+  "Could not reach Supabase. Check your internet connection, then try again. If this is the live site, make sure the Supabase project is active.";
+
+const friendlyAuthError = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message.toLowerCase().includes("failed to fetch")) {
+    return authNetworkMessage;
+  }
+
+  return fallback;
+};
+
 export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -103,7 +114,7 @@ export default function AuthPage() {
     } catch (error) {
       console.error("Sign up failed", error);
       setIsError(true);
-      setMessage("Sign up failed. Check your internet and Supabase settings.");
+      setMessage(friendlyAuthError(error, "Sign up failed. Check your internet and Supabase settings."));
     } finally {
       setIsLoading(false);
     }
@@ -214,7 +225,7 @@ export default function AuthPage() {
     } catch (error) {
       console.error("Login failed", error);
       setIsError(true);
-      setMessage("Login failed. Check your internet and Supabase settings.");
+      setMessage(friendlyAuthError(error, "Login failed. Check your internet and Supabase settings."));
     } finally {
       setIsLoading(false);
     }
@@ -253,7 +264,7 @@ export default function AuthPage() {
     } catch (error) {
       console.error("Resend verification failed", error);
       setIsError(true);
-      setMessage("Could not resend verification email right now. Please try again.");
+      setMessage(friendlyAuthError(error, "Could not resend verification email right now. Please try again."));
     } finally {
       setIsLoading(false);
     }
