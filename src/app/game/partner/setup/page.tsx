@@ -130,6 +130,7 @@ const phoneProviderHelp =
   "Phone verification needs Supabase Phone Auth and an SMS provider enabled. Check Supabase Auth phone settings, then try again.";
 const emailProviderHelp =
   "Use the email address you logged in with. Partner email verification uses your existing verified account so you do not need to wait for another code.";
+const isRegisteredPhoneError = (message: string) => message.toLowerCase().includes("already") && message.toLowerCase().includes("registered");
 const missingIsActiveColumnCode = "PGRST204";
 const missingColumnPattern = /'([^']+)' column/i;
 const faceMatchThreshold = 72;
@@ -259,6 +260,8 @@ export default function PartnerSetupPage() {
   const [faceMatchScore, setFaceMatchScore] = useState<number | null>(null);
   const [verificationCode, setVerificationCode] = useState("");
   const [contactVerified, setContactVerified] = useState(false);
+  const [canLoginWithExistingPhone, setCanLoginWithExistingPhone] = useState(false);
+  const [phoneOtpMode, setPhoneOtpMode] = useState<"verify" | "login">("verify");
   const [locationLabel, setLocationLabel] = useState("");
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
@@ -400,6 +403,8 @@ export default function PartnerSetupPage() {
     setMessage("");
     setVerificationCode("");
     setContactVerified(false);
+    setCanLoginWithExistingPhone(false);
+    setPhoneOtpMode("verify");
     if (nextMethod === "google") {
       setContactValue((current) => current || "");
     } else if (nextMethod === "email") {
@@ -427,6 +432,8 @@ export default function PartnerSetupPage() {
     setSaving(true);
     setError("");
     setMessage("");
+    setCanLoginWithExistingPhone(false);
+    setPhoneOtpMode("verify");
 
     try {
       if (method === "phone") {
@@ -436,6 +443,10 @@ export default function PartnerSetupPage() {
         });
 
         if (otpError) {
+          if (isRegisteredPhoneError(otpError.message)) {
+            setCanLoginWithExistingPhone(true);
+          }
+
           setError(
             otpError.message.toLowerCase().includes("phone provider")
               ? phoneProviderHelp
@@ -487,6 +498,46 @@ export default function PartnerSetupPage() {
     }
   };
 
+  const sendExistingPhoneLoginCode = async () => {
+    const resolvedContact = normalizePhoneNumber(contactValue, phoneDialCode);
+
+    if (!/^\+\d{10,15}$/.test(resolvedContact)) {
+      setError("Enter your phone number with country code, for example +27...");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setMessage("");
+
+    try {
+      setContactValue(resolvedContact);
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        phone: resolvedContact,
+        options: {
+          shouldCreateUser: false,
+        },
+      });
+
+      if (otpError) {
+        setError(otpError.message || phoneProviderHelp);
+        setSaving(false);
+        return;
+      }
+
+      setPhoneOtpMode("login");
+      setCanLoginWithExistingPhone(false);
+      setVerificationCode("");
+      setMessage(`A login code was sent to ${resolvedContact}.`);
+      setStep("verify");
+    } catch (sendError) {
+      console.error("Existing phone login send failed", sendError);
+      setError("Could not send the login code right now.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const verifyCurrentCode = async () => {
     if (!player) return;
     if (verificationCode.trim().length !== 6) {
@@ -504,7 +555,7 @@ export default function PartnerSetupPage() {
           ? await supabase.auth.verifyOtp({
               phone: resolvedContact,
               token: verificationCode.trim(),
-              type: "phone_change",
+              type: phoneOtpMode === "login" ? "sms" : "phone_change",
             })
           : await supabase.auth.verifyOtp({
               email: resolvedContact,
@@ -878,6 +929,16 @@ export default function PartnerSetupPage() {
               >
                 {saving ? (method === "phone" ? "Sending..." : "Checking...") : "Continue"}
               </button>
+              {method === "phone" && canLoginWithExistingPhone ? (
+                <button
+                  type="button"
+                  onClick={() => void sendExistingPhoneLoginCode()}
+                  disabled={saving}
+                  className="mt-4 w-full rounded-full border border-white/20 bg-white/10 px-5 py-4 text-base font-semibold text-white transition hover:bg-white/15 disabled:opacity-60"
+                >
+                  {saving ? "Sending login code..." : "This is my number, send login code"}
+                </button>
+              ) : null}
             </>
           ) : null}
 
@@ -898,7 +959,7 @@ export default function PartnerSetupPage() {
                 Resend
               </button>
               <div className="mt-6 rounded-2xl border border-white/10 bg-white/8 p-4 text-sm text-white/80">
-                Current verification method: {channelLabels[method]}
+                Current verification method: {method === "phone" && phoneOtpMode === "login" ? "Phone Login" : channelLabels[method]}
               </div>
               <button
                 onClick={() => void verifyCurrentCode()}
