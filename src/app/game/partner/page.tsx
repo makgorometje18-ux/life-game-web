@@ -105,6 +105,29 @@ const formatLastSeen = (value?: string | null) => {
   })}`;
 };
 
+const formatChatDivider = (value?: string | null) => {
+  const date = value ? new Date(value) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+
+  return safeDate.toLocaleString(undefined, {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const formatMessageStamp = (message: MessageRow) => {
+  const date = new Date(message.read_at || message.created_at);
+  if (Number.isNaN(date.getTime())) return message.read_at ? "Seen" : "Sent";
+
+  return `${message.read_at ? "Seen" : "Sent"} ${date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+};
+
 export default function PartnerScenePage() {
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
   const [progress, setProgress] = useState<Progress>(baseProgress);
@@ -798,12 +821,16 @@ export default function PartnerScenePage() {
         ) : null}
 
         {activeTab === "chat" ? (
-          <section className="rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur">
-            <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <h2 className="text-3xl font-bold">{activeMatch ? "Chat" : "Chats"}</h2>
-              {totalUnreadCount ? <span className="rounded-full bg-rose-500 px-3 py-1 text-xs font-black text-white">{totalUnreadCount} unread</span> : null}
-            </div>
+          <section className={activeMatch ? "overflow-hidden rounded-[2rem] border border-slate-200 bg-white text-slate-950 shadow-2xl" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
+            {!activeMatch ? (
+              <>
+                <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <h2 className="text-3xl font-bold">Chats</h2>
+                  {totalUnreadCount ? <span className="rounded-full bg-rose-500 px-3 py-1 text-xs font-black text-white">{totalUnreadCount} unread</span> : null}
+                </div>
+              </>
+            ) : null}
 
             {activeMatch && activeMatchProfile ? (
                 <ChatPanel
@@ -1115,99 +1142,124 @@ function ChatPanel({
 }) {
   const isOnline = Boolean(presence?.is_online);
   const presenceLabel = isTyping ? "Typing..." : isOnline ? "Online" : formatLastSeen(presence?.last_seen_at);
+  const dividerLabel = formatChatDivider(activeMessages[0]?.created_at);
 
   return (
-    <>
-      <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/[0.06] p-4">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <button onClick={onBack} className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white">
-            Back to chats
-          </button>
-          <div className="flex gap-2">
-            <button onClick={() => onStartCall("voice")} className="rounded-full bg-white/10 px-3 py-2 text-sm font-bold text-white">
-              Call
-            </button>
-            <button onClick={() => onStartCall("video")} className="rounded-full bg-white/10 px-3 py-2 text-sm font-bold text-white">
-              Video
-            </button>
-          </div>
+    <div className="flex min-h-[70vh] flex-col bg-white text-slate-950">
+      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-black text-slate-700 transition hover:bg-slate-200" aria-label="Back to chats">
+          ‹
+        </button>
+
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-200">
+          {activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}
+          <span className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500" : "bg-red-500"}`}></span>
         </div>
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10">
-            {activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}
-            <span className={`absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#181a21] ${isOnline ? "bg-emerald-400" : "bg-red-500"}`}></span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1">
+            <h3 className="truncate text-xl font-bold leading-tight text-slate-950">{activeMatchProfile.display_name}</h3>
+            {isProfileVerified(activeMatchProfile) ? <span className="shrink-0 rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-bold text-white">Verified</span> : null}
+            <span className="text-lg font-black text-purple-600">⌄</span>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="break-words text-2xl font-black">{activeMatchProfile.display_name}, {activeMatchProfile.age}</h3>
-              {isProfileVerified(activeMatchProfile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
-            </div>
-            <p className="mt-1 break-words text-sm text-white/65">{presenceLabel} - {activeMatchProfile.location_label || activeMatchProfile.city}</p>
-          </div>
+          <p className="truncate text-sm font-medium text-slate-500">{presenceLabel}</p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1 text-purple-600">
+          <button onClick={() => onStartCall("voice")} className="flex h-10 w-10 items-center justify-center rounded-full text-lg font-black transition hover:bg-purple-50" aria-label="Start voice call">
+            ☎
+          </button>
+          <button onClick={() => onStartCall("video")} className="flex h-10 w-10 items-center justify-center rounded-full text-lg font-black transition hover:bg-purple-50" aria-label="Start video call">
+            ■
+          </button>
+          <button className="hidden h-10 w-10 items-center justify-center rounded-full text-2xl font-black transition hover:bg-purple-50 sm:flex" aria-label="Minimize chat">
+            -
+          </button>
+          <button onClick={onBack} className="flex h-10 w-10 items-center justify-center rounded-full text-3xl font-light transition hover:bg-purple-50" aria-label="Close chat">
+            ×
+          </button>
         </div>
       </div>
 
-      <div className="mt-4 flex min-h-72 max-h-[46vh] flex-col gap-3 overflow-y-auto rounded-[1.8rem] border border-white/10 bg-[#11131a] p-4">
+      <div className="flex max-h-[58vh] min-h-[52vh] flex-1 flex-col gap-4 overflow-y-auto bg-white px-4 py-6">
+        <p className="text-center text-sm font-bold text-slate-500">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
             const isOwnMessage = message.sender_id === activePlayerId;
 
             return (
               <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                <div>
+                <div className={`max-w-[78%] ${isOwnMessage ? "items-end" : "items-start"} flex flex-col`}>
                   {isChatImageMessage(message.body) ? (
-                    <div className={`max-w-[72vw] overflow-hidden rounded-[1.35rem] shadow-lg sm:max-w-[18rem] ${isOwnMessage ? "bg-pink-500/20" : "bg-white/10"}`}>
-                      <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-72 w-full object-cover" />
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm">
+                      <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" />
                     </div>
                   ) : (
-                    <div className={`max-w-[86vw] break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-lg sm:max-w-[20rem] ${isOwnMessage ? "bg-pink-500 text-white" : "bg-white/10 text-white/85"}`}>
+                    <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-[#a100ff] text-white" : "bg-slate-100 text-slate-900"}`}>
                       {message.body}
                     </div>
                   )}
                   {isOwnMessage ? (
-                    <p className="mt-1 text-right text-[11px] font-semibold text-white/45">{message.read_at ? "Seen" : "Sent"}</p>
+                    <p className="mt-1 text-right text-[12px] font-medium text-slate-500">{formatMessageStamp(message)}</p>
                   ) : null}
                 </div>
               </div>
             );
           })
         ) : (
-          <div className="flex flex-1 items-center justify-center rounded-[1.5rem] bg-white/5 p-5 text-center text-sm leading-6 text-white/60">
+          <div className="flex flex-1 items-center justify-center rounded-[1.5rem] bg-slate-50 p-5 text-center text-sm leading-6 text-slate-500">
             No messages yet. Start the conversation.
           </div>
         )}
-        {isTyping ? <p className="text-sm font-semibold text-pink-200">{activeMatchProfile.display_name} is typing...</p> : null}
+        {isTyping ? <p className="text-sm font-semibold text-purple-600">{activeMatchProfile.display_name} is typing...</p> : null}
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-        <label className="flex cursor-pointer items-center justify-center rounded-full bg-white/10 px-5 py-4 font-black text-white transition hover:bg-white/15">
-          Pic
+      <div className="border-t border-slate-200 bg-white px-3 py-3">
+        <div className="flex items-center gap-2">
+          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-blue-600 transition hover:bg-blue-50" aria-label="Record voice message">
+            Mic
+          </button>
+          <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-black text-blue-600 transition hover:bg-blue-50" aria-label="Send picture">
+            Pic
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              disabled={saving}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) onImageSend(file);
+              }}
+            />
+          </label>
+          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-blue-600 transition hover:bg-blue-50 sm:flex" aria-label="Send sticker">
+            Stk
+          </button>
+          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-blue-600 transition hover:bg-blue-50 sm:flex" aria-label="Send GIF">
+            GIF
+          </button>
           <input
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            disabled={saving}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) onImageSend(file);
+            value={chatDraft}
+            onChange={(event) => setChatDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) onSend();
             }}
+            placeholder="Aa"
+            className="min-w-0 flex-1 rounded-full bg-slate-100 px-4 py-3 text-slate-950 outline-none placeholder:text-slate-500"
           />
-        </label>
-        <input
-          value={chatDraft}
-          onChange={(event) => setChatDraft(event.target.value)}
-          placeholder="Send a message"
-          className="min-w-0 rounded-full bg-white px-4 py-4 text-black outline-none"
-        />
-        <button onClick={onSend} disabled={saving} className="rounded-full bg-white px-6 py-4 font-semibold text-stone-950 disabled:opacity-60">
-          Send
+          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-black text-blue-600 transition hover:bg-blue-50" aria-label="Choose emoji">
+            :)
+          </button>
+          <button onClick={chatDraft.trim() ? onSend : undefined} disabled={saving} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
+            {chatDraft.trim() ? "Send" : "Like"}
+          </button>
+        </div>
+        <button onClick={onCommit} disabled={saving} className="mt-3 w-full rounded-full bg-[#a100ff] px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-purple-600 disabled:opacity-60">
+          Make It Official
         </button>
       </div>
-      <button onClick={onCommit} disabled={saving} className="mt-4 w-full rounded-full bg-pink-500 px-5 py-4 font-semibold text-white shadow-xl transition hover:bg-pink-400 disabled:opacity-60">
-        Make It Official
-      </button>
-    </>
+    </div>
   );
 }
 
