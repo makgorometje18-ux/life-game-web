@@ -464,7 +464,7 @@ export default function PartnerSetupPage() {
         setContactValue(accountEmail);
         setVerificationCode("");
         setContactVerified(true);
-        setMessage(`${channelLabels[method]} verification completed.`);
+        setMessage("");
         setStep("location");
         setSaving(false);
         return;
@@ -514,7 +514,7 @@ export default function PartnerSetupPage() {
 
       await syncCurrentPlayer();
       setContactVerified(true);
-      setMessage(`${channelLabels[method]} verification completed.`);
+      setMessage("");
       setStep("location");
     } catch (verifyError) {
       console.error("Partner verification check failed", verifyError);
@@ -532,6 +532,7 @@ export default function PartnerSetupPage() {
 
     setLocating(true);
     setError("");
+    setMessage("");
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const nextLatitude = Number(position.coords.latitude.toFixed(6));
@@ -540,12 +541,16 @@ export default function PartnerSetupPage() {
         setLongitude(nextLongitude);
         setLocationLabel(city.trim() || `Live near ${nextLatitude}, ${nextLongitude}`);
         setLocating(false);
-        setMessage("Live location captured. You can now finish your profile.");
+        setMessage("Live location captured.");
         setStep("profile");
       },
-      () => {
+      (positionError) => {
         setLocating(false);
-        setError("Location access was denied. Allow it so nearby profiles can work correctly.");
+        setError(
+          positionError.code === positionError.PERMISSION_DENIED
+            ? "Location access was denied. Tap Allow again and choose Allow only while in use from your browser popup."
+            : "Could not read your live location. Check that GPS/location is turned on, then try again."
+        );
       },
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
@@ -867,35 +872,33 @@ export default function PartnerSetupPage() {
           {step === "location" ? (
             <>
               <div className="pt-8 text-center">
-                <p className="text-sm uppercase tracking-[0.35em] text-white/60">Live Location</p>
-                <h1 className="mt-4 text-4xl font-black tracking-tight">So, are you from around here?</h1>
-                <p className="mt-5 text-base leading-7 text-white/70">
-                  Set your location to see who&apos;s in your neighborhood or beyond. Nearby matching depends on real live location access.
+                <h1 className="text-3xl font-black tracking-tight sm:text-4xl">So, are you from around here?</h1>
+                <p className="mx-auto mt-5 max-w-sm text-sm leading-6 text-white/62">
+                  Set your location to see who&apos;s in your neighborhood or beyond. You won&apos;t be able to match with people otherwise.
                 </p>
               </div>
 
-              <div className="mx-auto mt-12 flex h-56 w-56 items-center justify-center rounded-full bg-white/90 text-stone-900 shadow-2xl">
+              <div className="relative mx-auto mt-28 flex h-40 w-40 items-center justify-center rounded-full bg-white/95 text-stone-900 shadow-[0_24px_70px_rgba(255,255,255,0.12)] sm:h-48 sm:w-48">
+                <span className="absolute h-9 w-9 rounded-full border-2 border-stone-400 border-b-transparent"></span>
                 <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-stone-300 text-4xl">⌖</div>
-              </div>
-
-              <div className="mt-10 rounded-[2rem] border border-white/10 bg-white/8 p-5">
-                <p className="text-sm uppercase tracking-[0.25em] text-white/60">Access</p>
-                <p className="mt-3 text-base leading-7 text-white/80">
-                  Allow location only while in use so the partner finder can show verified nearby profiles.
-                </p>
-                {latitude !== null && longitude !== null ? (
-                  <div className="mt-4 rounded-2xl bg-black/25 p-4 text-sm text-white/75">
-                    Live coordinates saved: {latitude}, {longitude}
-                  </div>
-                ) : null}
               </div>
 
               <button
                 onClick={allowLocation}
                 disabled={locating}
-                className="mt-8 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100 disabled:opacity-60"
+                className="mt-28 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 shadow-[0_18px_40px_rgba(0,0,0,0.35)] transition hover:bg-stone-100 active:translate-y-1 disabled:opacity-60"
               >
-                {locating ? "Allowing..." : "Allow"}
+                {locating ? "Opening..." : "Allow"}
+              </button>
+              <button
+                type="button"
+                className="mx-auto mt-6 flex items-center gap-5 text-center text-base font-black leading-6 text-white/86"
+                onClick={() =>
+                  setMessage("Your location is used only for nearby partner matching and is saved after you approve the device location popup.")
+                }
+              >
+                <span>How is my location used?</span>
+                <span className="text-3xl leading-none text-white/70">↓</span>
               </button>
             </>
           ) : null}
