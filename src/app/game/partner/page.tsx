@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { GameLogo } from "@/components/game-logo";
 import { requestNotificationPermission, showSystemNotification } from "@/lib/browser-notifications";
 import { supabase } from "@/lib/supabase";
@@ -70,6 +70,16 @@ type MessageRow = {
 };
 
 type AppTab = "swipe" | "explore" | "likes" | "chat" | "profile";
+type CallKind = "voice" | "video";
+type CallStatus = "idle" | "calling" | "incoming" | "connecting" | "connected";
+type CallState = {
+  status: CallStatus;
+  kind: CallKind;
+  matchId: string;
+  peerId: string;
+  peerName: string;
+  error?: string;
+};
 
 const baseProgress: Progress = {
   career: "Unemployed",
@@ -90,6 +100,7 @@ const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 t
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
 const chatImagePrefix = "[chat-image]";
 const chatEmojis = ["😀", "😂", "😍", "😘", "🥰", "😎", "😢", "😡", "🔥", "❤️", "👍", "🙏", "🎉", "💯", "👀", "✨"];
+const rtcConfig: RTCConfiguration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const isProfileVerified = (profile?: Pick<DatingProfile, "contact_verified" | "profile_verified" | "is_photo_verified" | "selfie_url">) =>
   Boolean(profile?.contact_verified || profile?.profile_verified || (profile?.is_photo_verified && profile.selfie_url));
 const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
@@ -151,9 +162,17 @@ export default function PartnerScenePage() {
   const [chatDraft, setChatDraft] = useState("");
   const [isLightMode, setIsLightMode] = useState(false);
   const [matchCelebrationProfile, setMatchCelebrationProfile] = useState<DatingProfile | null>(null);
+  const [callState, setCallState] = useState<CallState | null>(null);
+  const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
+  const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
   const lastTypingSentRef = useRef("");
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const callChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const playerMoney = player?.money ?? 0;
   const moneyLabel = moneyLabelFor(playerMoney);
 
@@ -622,6 +641,198 @@ export default function PartnerScenePage() {
       .is("read_at", null);
   };
 
+  const stopCallStreams = () => {
+    localCallStream?.getTracks().forEach((track) => track.stop());
+    remoteCallStream?.getTracks().forEach((track) => track.stop());
+    setLocalCallStream(null);
+    setRemoteCallStream(null);
+  };
+
+  const sendCallSignal = (payload: Record<string, unknown>) => {
+    void callChannelRef.current?.send({
+      type: "broadcast",
+      event: "call",
+      payload,
+    });
+  };
+
+  const createPeerConnection = (matchId: string, peerId: string) => {
+    peerConnectionRef.current?.close();
+    const peerConnection = new RTCPeerConnection(rtcConfig);
+    const remoteStream = new MediaStream();
+    setRemoteCallStream(remoteStream);
+
+    peerConnection.onicecandidate = (event) => {
+      if (!event.candidate || !player) return;
+      sendCallSignal({
+        type: "candidate",
+        match_id: matchId,
+        from: player.id,
+        to: peerId,
+        candidate: event.candidate.toJSON(),
+      });
+    };
+
+    peerConnection.ontrack = (event) => {
+      event.streams[0]?.getTracks().forEach((track) => remoteStream.addTrack(track));
+      setRemoteCallStream(remoteStream);
+    };
+
+    peerConnectionRef.current = peerConnection;
+    return peerConnection;
+  };
+
+  const endCall = (notifyPeer = true) => {
+    if (notifyPeer && player && callState) {
+      sendCallSignal({
+        type: "end",
+        match_id: callState.matchId,
+        from: player.id,
+        to: callState.peerId,
+      });
+    }
+
+    peerConnectionRef.current?.close();
+    peerConnectionRef.current = null;
+    pendingOfferRef.current = null;
+    stopCallStreams();
+    setCallState(null);
+  };
+
+  const startCall = async (kind: CallKind) => {
+    if (!player || !activeMatch || !activeMatchProfile) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: kind === "video" });
+      setLocalCallStream(stream);
+      const peerConnection = createPeerConnection(activeMatch.id, activeMatchProfile.user_id);
+      stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
+
+      setCallState({
+        status: "calling",
+        kind,
+        matchId: activeMatch.id,
+        peerId: activeMatchProfile.user_id,
+        peerName: activeMatchProfile.display_name,
+      });
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      sendCallSignal({
+        type: "offer",
+        match_id: activeMatch.id,
+        from: player.id,
+        to: activeMatchProfile.user_id,
+        kind,
+        peer_name: player.name || "Your match",
+        sdp: offer,
+      });
+    } catch (callError) {
+      console.error("Could not start call", callError);
+      setError("Could not start the call. Allow microphone/camera access and try again.");
+      endCall(false);
+    }
+  };
+
+  const acceptCall = async () => {
+    if (!player || !callState || !pendingOfferRef.current) return;
+
+    try {
+      setCallState((current) => (current ? { ...current, status: "connecting" } : current));
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callState.kind === "video" });
+      setLocalCallStream(stream);
+      const peerConnection = createPeerConnection(callState.matchId, callState.peerId);
+      stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      sendCallSignal({
+        type: "answer",
+        match_id: callState.matchId,
+        from: player.id,
+        to: callState.peerId,
+        sdp: answer,
+      });
+      pendingOfferRef.current = null;
+      setCallState((current) => (current ? { ...current, status: "connected" } : current));
+    } catch (callError) {
+      console.error("Could not accept call", callError);
+      setError("Could not join the call. Allow microphone/camera access and try again.");
+      endCall(true);
+    }
+  };
+
+  const rejectCall = () => endCall(true);
+
+  useEffect(() => {
+    if (localVideoRef.current) localVideoRef.current.srcObject = localCallStream;
+  }, [localCallStream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteCallStream;
+  }, [remoteCallStream]);
+
+  useEffect(() => {
+    if (!player || !activeMatch) return;
+
+    const peerId = activeMatch.user_a === player.id ? activeMatch.user_b : activeMatch.user_a;
+    const channel = supabase
+      .channel(`dating-call-${activeMatch.id}`)
+      .on("broadcast", { event: "call" }, async ({ payload }) => {
+        const callPayload = payload as {
+          type?: string;
+          match_id?: string;
+          from?: string;
+          to?: string;
+          kind?: CallKind;
+          peer_name?: string;
+          sdp?: RTCSessionDescriptionInit;
+          candidate?: RTCIceCandidateInit;
+        };
+
+        if (callPayload.match_id !== activeMatch.id || callPayload.from === player.id || callPayload.to !== player.id) return;
+
+        if (callPayload.type === "offer" && callPayload.sdp && callPayload.kind) {
+          pendingOfferRef.current = callPayload.sdp;
+          setCallState({
+            status: "incoming",
+            kind: callPayload.kind,
+            matchId: activeMatch.id,
+            peerId: callPayload.from || peerId,
+            peerName: callPayload.peer_name || activeMatchProfile?.display_name || "Your match",
+          });
+          return;
+        }
+
+        if (callPayload.type === "answer" && callPayload.sdp && peerConnectionRef.current) {
+          await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(callPayload.sdp));
+          setCallState((current) => (current ? { ...current, status: "connected" } : current));
+          return;
+        }
+
+        if (callPayload.type === "candidate" && callPayload.candidate && peerConnectionRef.current) {
+          try {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(callPayload.candidate));
+          } catch (candidateError) {
+            console.warn("Could not add call candidate", candidateError);
+          }
+          return;
+        }
+
+        if (callPayload.type === "end") {
+          endCall(false);
+        }
+      })
+      .subscribe();
+
+    callChannelRef.current = channel;
+
+    return () => {
+      callChannelRef.current = null;
+      void supabase.removeChannel(channel);
+    };
+  }, [activeMatch, activeMatchProfile?.display_name, player]);
+
   const goalCards = useMemo(() => {
     const counts = profiles.reduce<Record<string, number>>((accumulator, profile) => {
       const key = profile.relationship_goal || "Still figuring it out";
@@ -1030,9 +1241,7 @@ export default function PartnerScenePage() {
                 presence={presenceMap[activeMatchProfile.user_id]}
                 isTyping={Boolean(typingByMatch[activeMatch.id])}
                 onImageSend={(file) => void sendChatImage(file)}
-                onStartCall={(kind) => {
-                  setError(`${kind === "video" ? "Video call" : "Voice call"} is coming soon.`);
-                }}
+                onStartCall={(kind) => void startCall(kind)}
               />
             ) : matches.length ? (
               <div className="mt-5 space-y-3">
@@ -1084,6 +1293,19 @@ export default function PartnerScenePage() {
           </section>
         ) : null}
       </div>
+
+      {callState ? (
+        <CallOverlay
+          callState={callState}
+          localVideoRef={localVideoRef}
+          remoteVideoRef={remoteVideoRef}
+          localStream={localCallStream}
+          remoteStream={remoteCallStream}
+          onAccept={() => void acceptCall()}
+          onReject={rejectCall}
+          onEnd={() => endCall(true)}
+        />
+      ) : null}
 
       <nav className="fixed inset-x-0 bottom-0 z-[70] mx-auto flex max-w-md items-center justify-between rounded-t-[2rem] border border-white/10 bg-[#111318]/95 px-4 py-3 text-xs text-white/65 backdrop-blur">
         {[
@@ -1487,6 +1709,93 @@ function ChatPanel({
         <button onClick={onCommit} disabled={saving} className="mt-3 w-full rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:opacity-60">
           Make It Official
         </button>
+      </div>
+    </div>
+  );
+}
+
+function CallOverlay({
+  callState,
+  localVideoRef,
+  remoteVideoRef,
+  localStream,
+  remoteStream,
+  onAccept,
+  onReject,
+  onEnd,
+}: {
+  callState: CallState;
+  localVideoRef: RefObject<HTMLVideoElement | null>;
+  remoteVideoRef: RefObject<HTMLVideoElement | null>;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  onAccept: () => void;
+  onReject: () => void;
+  onEnd: () => void;
+}) {
+  const isVideo = callState.kind === "video";
+  const isIncoming = callState.status === "incoming";
+  const statusLabel =
+    callState.status === "incoming"
+      ? `Incoming ${isVideo ? "video" : "voice"} call`
+      : callState.status === "calling"
+        ? "Calling..."
+        : callState.status === "connecting"
+          ? "Connecting..."
+          : "Connected";
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 px-4 py-6 backdrop-blur">
+      <div className="relative flex h-full max-h-[46rem] w-full max-w-md flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#071323] text-white shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/10 bg-[#0b1728] px-5 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-sky-200/70">{statusLabel}</p>
+            <h2 className="mt-1 truncate text-2xl font-black">{callState.peerName}</h2>
+          </div>
+          <span className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-white/75">{isVideo ? "Video" : "Voice"}</span>
+        </div>
+
+        <div className="relative min-h-0 flex-1 bg-[#030b16]">
+          {isVideo ? (
+            <>
+              <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full bg-black object-cover" />
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute bottom-4 right-4 h-32 w-24 rounded-2xl border border-white/20 bg-black object-cover shadow-xl"
+              />
+            </>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-blue-600 text-5xl font-black shadow-[0_0_60px_rgba(37,99,235,0.55)]">
+                {callState.peerName.slice(0, 1).toUpperCase()}
+              </div>
+              <p className="mt-6 text-lg font-semibold text-white/80">{remoteStream ? "Voice connected" : statusLabel}</p>
+              <video ref={remoteVideoRef} autoPlay playsInline className="hidden" />
+              <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 border-t border-white/10 bg-[#0b1728] px-5 py-5">
+          {isIncoming ? (
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={onReject} className="rounded-full bg-rose-600 px-5 py-4 font-black text-white shadow-lg transition hover:bg-rose-500">
+                Decline
+              </button>
+              <button onClick={onAccept} className="rounded-full bg-emerald-500 px-5 py-4 font-black text-slate-950 shadow-lg transition hover:bg-emerald-400">
+                Answer
+              </button>
+            </div>
+          ) : (
+            <button onClick={onEnd} className="w-full rounded-full bg-rose-600 px-5 py-4 font-black text-white shadow-lg transition hover:bg-rose-500">
+              End Call
+            </button>
+          )}
+          {localStream ? <p className="mt-3 text-center text-xs font-semibold text-white/45">Mic {isVideo ? "and camera" : ""} are active</p> : null}
+        </div>
       </div>
     </div>
   );
