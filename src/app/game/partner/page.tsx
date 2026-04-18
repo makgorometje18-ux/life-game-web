@@ -25,10 +25,12 @@ type PlayerRecord = {
   education: number | null;
   country: string | null;
   is_online?: boolean | null;
+  updated_at?: string | null;
 };
 
 type PlayerPresence = {
   is_online: boolean;
+  last_seen_at: string | null;
 };
 
 type DatingProfile = {
@@ -88,6 +90,17 @@ const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 t
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
 const isProfileVerified = (profile?: Pick<DatingProfile, "contact_verified" | "profile_verified" | "is_photo_verified" | "selfie_url">) =>
   Boolean(profile?.contact_verified || profile?.profile_verified || (profile?.is_photo_verified && profile.selfie_url));
+const formatLastSeen = (value?: string | null) => {
+  if (!value) return "Last seen recently";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Last seen recently";
+
+  return `Last seen ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+};
 
 export default function PartnerScenePage() {
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
@@ -131,7 +144,7 @@ export default function PartnerScenePage() {
 
       const { data: playerData, error: playerError } = await supabase
         .from("players")
-        .select("id, name, age, money, health, happiness, education, country, is_online")
+        .select("id, name, age, money, health, happiness, education, country, is_online, updated_at")
         .eq("id", user.id)
         .single();
 
@@ -219,12 +232,12 @@ export default function PartnerScenePage() {
       if (presenceIds.length) {
         const { data: presenceRows } = await supabase
           .from("players")
-          .select("id, is_online")
+          .select("id, is_online, updated_at")
           .in("id", presenceIds);
 
-        nextPresenceMap = ((presenceRows || []) as Array<{ id: string; is_online: boolean | null }>).reduce<Record<string, PlayerPresence>>(
+        nextPresenceMap = ((presenceRows || []) as Array<{ id: string; is_online: boolean | null; updated_at: string | null }>).reduce<Record<string, PlayerPresence>>(
           (accumulator, row) => {
-            accumulator[row.id] = { is_online: Boolean(row.is_online) };
+            accumulator[row.id] = { is_online: Boolean(row.is_online), last_seen_at: row.updated_at };
             return accumulator;
           },
           {}
@@ -726,7 +739,7 @@ export default function PartnerScenePage() {
             </div>
 
             {activeMatch && activeMatchProfile ? (
-              <ChatPanel
+                <ChatPanel
                 activeMatchProfile={activeMatchProfile}
                 activeMessages={activeMessages}
                 activePlayerId={player?.id || ""}
@@ -739,7 +752,7 @@ export default function PartnerScenePage() {
                   setActiveMatchId("");
                   setChatDraft("");
                 }}
-                isOnline={Boolean(presenceMap[activeMatchProfile.user_id]?.is_online)}
+                presence={presenceMap[activeMatchProfile.user_id]}
                 isTyping={Boolean(typingByMatch[activeMatch.id])}
               />
             ) : matches.length ? (
@@ -752,7 +765,7 @@ export default function PartnerScenePage() {
                       match={match}
                       profile={profile}
                       unreadCount={unreadCounts[match.id] || 0}
-                      isOnline={Boolean(profile && presenceMap[profile.user_id]?.is_online)}
+                      presence={profile ? presenceMap[profile.user_id] : undefined}
                       onOpen={() => setActiveMatchId(match.id)}
                     />
                   );
@@ -965,16 +978,19 @@ function MatchRowButton({ profile, onOpen }: { match: MatchRow; playerId: string
 function ChatListButton({
   profile,
   unreadCount,
-  isOnline,
+  presence,
   onOpen,
 }: {
   match: MatchRow;
   profile?: DatingProfile;
   unreadCount: number;
-  isOnline: boolean;
+  presence?: PlayerPresence;
   onOpen: () => void;
 }) {
   if (!profile) return null;
+  const isOnline = Boolean(presence?.is_online);
+  const presenceLabel = isOnline ? "Online" : formatLastSeen(presence?.last_seen_at);
+
   return (
     <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left transition hover:bg-white/10">
       <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10">
@@ -986,7 +1002,7 @@ function ChatListButton({
           <h3 className="truncate text-xl font-black">{profile.display_name}, {profile.age}</h3>
           {isProfileVerified(profile) ? <span className="shrink-0 rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
         </div>
-        <p className="mt-1 text-sm text-white/65">{isOnline ? "Online" : "Offline"} · {profile.location_label || profile.city}</p>
+        <p className="mt-1 text-sm text-white/65">{presenceLabel} · {profile.location_label || profile.city}</p>
       </div>
       {unreadCount ? (
         <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-black text-white">
@@ -1007,7 +1023,7 @@ function ChatPanel({
   onSend,
   onCommit,
   onBack,
-  isOnline,
+  presence,
   isTyping,
 }: {
   activeMatchProfile: DatingProfile;
@@ -1019,9 +1035,12 @@ function ChatPanel({
   onSend: () => void;
   onCommit: () => void;
   onBack: () => void;
-  isOnline: boolean;
+  presence?: PlayerPresence;
   isTyping: boolean;
 }) {
+  const isOnline = Boolean(presence?.is_online);
+  const presenceLabel = isTyping ? "Typing..." : isOnline ? "Online" : formatLastSeen(presence?.last_seen_at);
+
   return (
     <>
       <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/[0.06] p-4">
@@ -1038,9 +1057,7 @@ function ChatPanel({
               <h3 className="break-words text-2xl font-black">{activeMatchProfile.display_name}, {activeMatchProfile.age}</h3>
               {isProfileVerified(activeMatchProfile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
             </div>
-            <p className="mt-1 break-words text-sm text-white/65">
-              {isTyping ? "Typing..." : isOnline ? "Online" : "Offline"} · {activeMatchProfile.location_label || activeMatchProfile.city}
-            </p>
+            <p className="mt-1 break-words text-sm text-white/65">{presenceLabel} · {activeMatchProfile.location_label || activeMatchProfile.city}</p>
           </div>
         </div>
       </div>
