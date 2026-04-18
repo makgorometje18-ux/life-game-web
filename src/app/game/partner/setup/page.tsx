@@ -131,10 +131,21 @@ const phoneProviderHelp =
 const emailProviderHelp =
   "Use the email address you logged in with. Partner email verification uses your existing verified account so you do not need to wait for another code.";
 const missingIsActiveColumnCode = "PGRST204";
+const missingColumnPattern = /'([^']+)' column/i;
 const faceMatchThreshold = 72;
 const fingerprintSize = 12;
 
 type ImageSource = File | string;
+type SchemaFallbackPayload = Record<string, string | number | boolean | string[] | null>;
+type SchemaFallbackError = {
+  code?: string;
+  message: string;
+};
+
+const getMissingSchemaColumn = (error: SchemaFallbackError | null) => {
+  if (!error || error.code !== missingIsActiveColumnCode) return "";
+  return error.message.match(missingColumnPattern)?.[1] || "";
+};
 
 const loadImageElement = (source: ImageSource) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
@@ -201,6 +212,30 @@ const compareSelfieToPhotos = async (selfie: ImageSource, profilePhotos: ImageSo
   );
 
   return Math.max(...scores, 0);
+};
+
+const upsertDatingProfile = async (payload: SchemaFallbackPayload) => {
+  const nextPayload = { ...payload };
+  const ignoredColumns: string[] = [];
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const { error } = await supabase.from("dating_profiles").upsert(nextPayload, { onConflict: "user_id" });
+
+    if (!error) return { error: null, ignoredColumns };
+
+    const missingColumn = getMissingSchemaColumn(error);
+    if (!missingColumn || !(missingColumn in nextPayload)) return { error, ignoredColumns };
+
+    ignoredColumns.push(missingColumn);
+    delete nextPayload[missingColumn];
+  }
+
+  return {
+    error: {
+      message: "Could not save dating profile because the Supabase schema cache is missing too many profile columns.",
+    },
+    ignoredColumns,
+  };
 };
 
 export default function PartnerSetupPage() {
@@ -616,7 +651,7 @@ export default function PartnerSetupPage() {
         .filter(Boolean)
         .slice(0, 10);
 
-      const profilePayload = {
+      const profilePayload: SchemaFallbackPayload = {
         user_id: currentPlayer.id,
         display_name: displayName.trim(),
         age: Math.max(18, Number(age) || 18),
@@ -643,25 +678,17 @@ export default function PartnerSetupPage() {
         updated_at: new Date().toISOString(),
       };
 
-      let { error: upsertError } = await supabase.from("dating_profiles").upsert(profilePayload, { onConflict: "user_id" });
-
-      if (
-        upsertError &&
-        (upsertError.code === missingIsActiveColumnCode || upsertError.message.toLowerCase().includes("is_active"))
-      ) {
-        const profilePayloadWithoutActiveState = { ...profilePayload } as Partial<typeof profilePayload>;
-        delete profilePayloadWithoutActiveState.is_active;
-        const retryResult = await supabase
-          .from("dating_profiles")
-          .upsert(profilePayloadWithoutActiveState, { onConflict: "user_id" });
-        upsertError = retryResult.error;
-      }
+      const { error: upsertError, ignoredColumns } = await upsertDatingProfile(profilePayload);
 
       if (upsertError) {
         console.error("Dating profile upsert failed", upsertError);
         setError(upsertError.message || "Could not save dating profile. Run the latest SQL in supabase/dating_schema.sql first.");
         setSaving(false);
         return;
+      }
+
+      if (ignoredColumns.length) {
+        console.warn("Dating profile saved without newer Supabase columns", ignoredColumns);
       }
 
       if (typeof window !== "undefined" && Notification.permission === "default") {
@@ -881,7 +908,7 @@ export default function PartnerSetupPage() {
                 Add your real details, relationship goals, live location, and your own pictures. Verified profiles stand out under swipe and explore.
               </p>
 
-              <div className="mt-8 grid gap-4">
+              <div className="mt-8 grid w-full gap-4">
                 <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Name" className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <input value={age} onChange={(event) => setAge(event.target.value)} placeholder="Age" type="number" min={18} className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
@@ -902,9 +929,9 @@ export default function PartnerSetupPage() {
                 </div>
                 <textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder="Write a bio that sounds like you." className="min-h-36 rounded-2xl bg-white px-4 py-3 text-black outline-none" />
                 <input value={interests} onChange={(event) => setInterests(event.target.value)} placeholder="Interests separated by commas" className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
-                <div className="rounded-[1.5rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)] sm:rounded-[2rem]">
+                <div className="w-full overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)] sm:rounded-[2rem]">
                   <p className="text-xs uppercase tracking-[0.35em] text-white/70">Upload pictures</p>
-                  <label className="group mt-4 flex min-h-36 cursor-pointer flex-col gap-4 rounded-[1.5rem] border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.18),rgba(255,255,255,0.05)_46%,rgba(0,0,0,0.28))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-pink-300/50 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]">
+                  <label className="group mt-4 flex min-h-36 w-full cursor-pointer flex-col gap-4 rounded-[1.5rem] border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.18),rgba(255,255,255,0.05)_46%,rgba(0,0,0,0.28))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-pink-300/50 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]">
                     <input type="file" accept="image/*" multiple onChange={onPhotoChange} className="sr-only" />
                     <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-base font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1 sm:h-20 sm:w-20 sm:text-lg">
                       PIC
@@ -926,9 +953,9 @@ export default function PartnerSetupPage() {
                     ))}
                   </div>
                 </div>
-                <div className="rounded-[1.5rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)] sm:rounded-[2rem]">
+                <div className="w-full overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)] sm:rounded-[2rem]">
                   <p className="text-xs uppercase tracking-[0.35em] text-white/70">Selfie verification</p>
-                  <label className="group mt-4 flex min-h-36 cursor-pointer flex-col gap-4 rounded-[1.5rem] border border-sky-200/20 bg-[linear-gradient(145deg,rgba(125,211,252,0.22),rgba(255,255,255,0.06)_48%,rgba(0,0,0,0.34))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-sky-200/60 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]">
+                  <label className="group mt-4 flex min-h-36 w-full cursor-pointer flex-col gap-4 rounded-[1.5rem] border border-sky-200/20 bg-[linear-gradient(145deg,rgba(125,211,252,0.22),rgba(255,255,255,0.06)_48%,rgba(0,0,0,0.34))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-sky-200/60 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]">
                     <input type="file" accept="image/*" capture="user" onChange={onSelfieChange} className="sr-only" />
                     <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-sm font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1 sm:h-20 sm:w-20 sm:text-base">
                       FACE
@@ -940,7 +967,7 @@ export default function PartnerSetupPage() {
                       </span>
                     </span>
                   </label>
-                  <div className="mt-4 grid gap-3 text-sm text-white/80">
+                  <div className="mt-4 grid w-full gap-3 text-sm text-white/80">
                     <div className="break-words rounded-2xl bg-black/20 p-3">
                       Selfie: {selfieFile?.name || (selfieUrl ? "Saved" : "Needed before verified badge")}
                     </div>
@@ -952,18 +979,18 @@ export default function PartnerSetupPage() {
                     </div>
                   </div>
                 </div>
-                <div className="rounded-[1.5rem] border border-white/10 bg-white/8 p-4 sm:rounded-[2rem]">
+                <div className="w-full overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/8 p-4 sm:rounded-[2rem]">
                   <p className="text-xs uppercase tracking-[0.35em] text-white/70">Verification & location</p>
-                  <div className="mt-3 grid gap-3 text-sm text-white/80">
-                    <div className="rounded-2xl bg-black/20 p-3">
+                  <div className="mt-3 grid w-full gap-3 text-sm text-white/80">
+                    <div className="w-full rounded-2xl bg-black/20 p-3">
                       <span className="block text-xs uppercase tracking-[0.18em] text-white/45">Verified channel</span>
                       <span className="mt-1 block break-words text-white/85">{channelLabels[method]}</span>
                     </div>
-                    <div className="rounded-2xl bg-black/20 p-3">
+                    <div className="w-full rounded-2xl bg-black/20 p-3">
                       <span className="block text-xs uppercase tracking-[0.18em] text-white/45">Contact</span>
                       <span className="mt-1 block break-words text-white/85">{contactValue}</span>
                     </div>
-                    <div className="rounded-2xl bg-black/20 p-3">
+                    <div className="w-full rounded-2xl bg-black/20 p-3">
                       <span className="block text-xs uppercase tracking-[0.18em] text-white/45">Live location</span>
                       <span className="mt-1 block break-words text-white/85">{locationLabel || "Captured from browser permission"}</span>
                     </div>
@@ -971,9 +998,9 @@ export default function PartnerSetupPage() {
                 </div>
               </div>
 
-              <label className="mt-6 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/8 p-4 text-sm leading-6 text-white/85">
+              <label className="mt-6 flex w-full items-start gap-3 rounded-[1.5rem] border border-white/10 bg-white/8 p-4 text-left text-sm leading-6 text-white/85">
                 <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} className="mt-1 shrink-0" />
-                <span>Show my profile under Swipe and Explore</span>
+                <span className="min-w-0 break-words">Show my profile under Swipe and Explore</span>
               </label>
 
               <button
@@ -986,8 +1013,8 @@ export default function PartnerSetupPage() {
             </>
           ) : null}
 
-          {message ? <p className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">{message}</p> : null}
-          {error ? <p className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
+          {message ? <p className="mt-6 w-full break-words rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">{message}</p> : null}
+          {error ? <p className="mt-4 w-full break-words rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
         </div>
       </div>
     </main>
