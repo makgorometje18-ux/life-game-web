@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GameLogo } from "@/components/game-logo";
 import { requestNotificationPermission, showSystemNotification } from "@/lib/browser-notifications";
 import { supabase } from "@/lib/supabase";
@@ -24,6 +24,11 @@ type PlayerRecord = {
   happiness: number | null;
   education: number | null;
   country: string | null;
+  is_online?: boolean | null;
+};
+
+type PlayerPresence = {
+  is_online: boolean;
 };
 
 type DatingProfile = {
@@ -91,6 +96,8 @@ export default function PartnerScenePage() {
   const [profileMap, setProfileMap] = useState<Record<string, DatingProfile>>({});
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [presenceMap, setPresenceMap] = useState<Record<string, PlayerPresence>>({});
+  const [typingByMatch, setTypingByMatch] = useState<Record<string, boolean>>({});
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [likedMeIds, setLikedMeIds] = useState<string[]>([]);
   const [passedIds, setPassedIds] = useState<string[]>([]);
@@ -104,6 +111,9 @@ export default function PartnerScenePage() {
   const [chatDraft, setChatDraft] = useState("");
   const [isLightMode, setIsLightMode] = useState(false);
   const [matchCelebrationProfile, setMatchCelebrationProfile] = useState<DatingProfile | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const lastTypingSentRef = useRef("");
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const playerMoney = player?.money ?? 0;
   const moneyLabel = moneyLabelFor(playerMoney);
 
@@ -121,7 +131,7 @@ export default function PartnerScenePage() {
 
       const { data: playerData, error: playerError } = await supabase
         .from("players")
-        .select("id, name, age, money, health, happiness, education, country")
+        .select("id, name, age, money, health, happiness, education, country, is_online")
         .eq("id", user.id)
         .single();
 
@@ -203,6 +213,23 @@ export default function PartnerScenePage() {
         accumulator[profile.user_id] = profile;
         return accumulator;
       }, {});
+      const presenceIds = Array.from(new Set([...Object.keys(nextMap), user.id]));
+      let nextPresenceMap: Record<string, PlayerPresence> = {};
+
+      if (presenceIds.length) {
+        const { data: presenceRows } = await supabase
+          .from("players")
+          .select("id, is_online")
+          .in("id", presenceIds);
+
+        nextPresenceMap = ((presenceRows || []) as Array<{ id: string; is_online: boolean | null }>).reduce<Record<string, PlayerPresence>>(
+          (accumulator, row) => {
+            accumulator[row.id] = { is_online: Boolean(row.is_online) };
+            return accumulator;
+          },
+          {}
+        );
+      }
 
       const matchIds = typedMatches.map((row) => row.id);
       let messageRows: MessageRow[] = [];
@@ -225,11 +252,12 @@ export default function PartnerScenePage() {
       setProgress(extra);
       setProfiles(((allProfiles || []) as DatingProfile[]).filter((profile) => !nextLikedIds.includes(profile.user_id)));
       setProfileMap(nextMap);
+      setPresenceMap(nextPresenceMap);
       setMatches(typedMatches);
       setMessages(messageRows);
       setLikedIds(nextLikedIds);
       setLikedMeIds((likesReceived || []).map((row) => row.liker_id));
-      setActiveMatchId((current) => preserveMatchId || current || typedMatches[0]?.id || "");
+      setActiveMatchId((current) => preserveMatchId || current);
       setLoading(false);
     } catch (loadError) {
       console.error("Partner scene load failed", loadError);
@@ -264,6 +292,74 @@ export default function PartnerScenePage() {
 
     return () => window.clearInterval(interval);
   }, [activeMatchId, player]);
+
+  useEffect(() => {
+    if (!player || activeTab !== "chat" || !activeMatchId) return;
+
+    const unreadMessageIds = messages
+      .filter((message) => message.match_id === activeMatchId && message.sender_id !== player.id && !message.read_at)
+      .map((message) => message.id);
+
+    if (!unreadMessageIds.length) return;
+
+    const readAt = new Date().toISOString();
+    setMessages((current) =>
+      current.map((message) => (unreadMessageIds.includes(message.id) ? { ...message, read_at: readAt } : message))
+    );
+
+    void supabase.from("dating_messages").update({ read_at: readAt }).in("id", unreadMessageIds);
+  }, [activeMatchId, activeTab, messages, player]);
+
+  useEffect(() => {
+    if (!player || !activeMatchId) return;
+
+    const channel = supabase
+      .channel(`dating-typing-${activeMatchId}`)
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        const typingPayload = payload as { match_id?: string; sender_id?: string; is_typing?: boolean };
+        if (typingPayload.match_id !== activeMatchId || typingPayload.sender_id === player.id) return;
+
+        setTypingByMatch((current) => ({ ...current, [activeMatchId]: Boolean(typingPayload.is_typing) }));
+      })
+      .subscribe();
+
+    typingChannelRef.current = channel;
+
+    return () => {
+      typingChannelRef.current = null;
+      void supabase.removeChannel(channel);
+    };
+  }, [activeMatchId, player]);
+
+  useEffect(() => {
+    if (!player || activeTab !== "chat" || !activeMatchId || !typingChannelRef.current) return;
+
+    const isTyping = Boolean(chatDraft.trim());
+    const typingKey = `${activeMatchId}:${isTyping}`;
+    if (lastTypingSentRef.current === typingKey) return;
+
+    lastTypingSentRef.current = typingKey;
+    void typingChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { match_id: activeMatchId, sender_id: player.id, is_typing: isTyping },
+    });
+
+    if (typingTimeoutRef.current) {
+      window.clearTimeout(typingTimeoutRef.current);
+    }
+
+    if (isTyping) {
+      typingTimeoutRef.current = window.setTimeout(() => {
+        lastTypingSentRef.current = `${activeMatchId}:false`;
+        void typingChannelRef.current?.send({
+          type: "broadcast",
+          event: "typing",
+          payload: { match_id: activeMatchId, sender_id: player.id, is_typing: false },
+        });
+      }, 2200);
+    }
+  }, [activeMatchId, activeTab, chatDraft, player]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !player || Notification.permission !== "granted") return;
@@ -305,6 +401,18 @@ export default function PartnerScenePage() {
   const activeMatch = matches.find((match) => match.id === activeMatchId) || null;
   const activeMatchProfile = activeMatch ? profileMap[activeMatch.user_a === player?.id ? activeMatch.user_b : activeMatch.user_a] : null;
   const activeMessages = activeMatch ? messages.filter((message) => message.match_id === activeMatch.id) : [];
+  const unreadCounts = useMemo(() => {
+    if (!player) return {};
+
+    return messages.reduce<Record<string, number>>((accumulator, message) => {
+      if (message.sender_id !== player.id && !message.read_at) {
+        accumulator[message.match_id] = (accumulator[message.match_id] || 0) + 1;
+      }
+
+      return accumulator;
+    }, {});
+  }, [messages, player]);
+  const totalUnreadCount = Object.values(unreadCounts).reduce((total, count) => total + count, 0);
   const exploreProfiles = profiles.slice(0, 8);
 
   const goalCards = useMemo(() => {
@@ -612,9 +720,47 @@ export default function PartnerScenePage() {
         {activeTab === "chat" ? (
           <section className="rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur">
             <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
-            <h2 className="mt-2 text-3xl font-bold">Chats</h2>
-            <div className="mt-5 flex gap-3 overflow-x-auto pb-1">{matches.map((match) => <ChatChip key={match.id} match={match} playerId={player?.id || ""} profile={profileMap[match.user_a === player?.id ? match.user_b : match.user_a]} active={activeMatchId === match.id} onOpen={() => setActiveMatchId(match.id)} />)}</div>
-            {activeMatch && activeMatchProfile ? <ChatPanel activeMatchProfile={activeMatchProfile} activeMessages={activeMessages} activePlayerId={player?.id || ""} chatDraft={chatDraft} setChatDraft={setChatDraft} saving={saving} onSend={() => void sendMessage()} onCommit={() => void makeItOfficial()} /> : <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-5 text-sm text-white/70">Your mutual matches will appear here. Once you both like each other, you can chat in this inbox.</div>}
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <h2 className="text-3xl font-bold">{activeMatch ? "Chat" : "Chats"}</h2>
+              {totalUnreadCount ? <span className="rounded-full bg-rose-500 px-3 py-1 text-xs font-black text-white">{totalUnreadCount} unread</span> : null}
+            </div>
+
+            {activeMatch && activeMatchProfile ? (
+              <ChatPanel
+                activeMatchProfile={activeMatchProfile}
+                activeMessages={activeMessages}
+                activePlayerId={player?.id || ""}
+                chatDraft={chatDraft}
+                setChatDraft={setChatDraft}
+                saving={saving}
+                onSend={() => void sendMessage()}
+                onCommit={() => void makeItOfficial()}
+                onBack={() => {
+                  setActiveMatchId("");
+                  setChatDraft("");
+                }}
+                isOnline={Boolean(presenceMap[activeMatchProfile.user_id]?.is_online)}
+                isTyping={Boolean(typingByMatch[activeMatch.id])}
+              />
+            ) : matches.length ? (
+              <div className="mt-5 space-y-3">
+                {matches.map((match) => {
+                  const profile = profileMap[match.user_a === player?.id ? match.user_b : match.user_a];
+                  return (
+                    <ChatListButton
+                      key={match.id}
+                      match={match}
+                      profile={profile}
+                      unreadCount={unreadCounts[match.id] || 0}
+                      isOnline={Boolean(profile && presenceMap[profile.user_id]?.is_online)}
+                      onOpen={() => setActiveMatchId(match.id)}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-5 text-sm text-white/70">Your mutual matches will appear here. Once you both like each other, you can chat in this inbox.</div>
+            )}
           </section>
         ) : null}
 
@@ -653,7 +799,14 @@ export default function PartnerScenePage() {
           { id: "profile", label: "Profile", icon: "◍" },
         ].map((item) => (
           <button key={item.id} onClick={() => setActiveTab(item.id as AppTab)} className={`flex flex-col items-center gap-1 rounded-2xl px-3 py-2 ${activeTab === item.id ? "bg-pink-500/20 text-white" : ""}`}>
-            <span className="text-base">{item.icon}</span>
+            <span className="relative text-base">
+              {item.icon}
+              {item.id === "chat" && totalUnreadCount ? (
+                <span className="absolute -right-3 -top-2 min-w-5 rounded-full bg-rose-500 px-1 text-[10px] font-black leading-5 text-white">
+                  {totalUnreadCount > 9 ? "9+" : totalUnreadCount}
+                </span>
+              ) : null}
+            </span>
             <span>{item.label}</span>
           </button>
         ))}
@@ -809,25 +962,85 @@ function MatchRowButton({ profile, onOpen }: { match: MatchRow; playerId: string
   return <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left"><div className="h-20 w-16 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex items-center gap-2"><h3 className="text-lg font-bold">{profile.display_name}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{profile.relationship_goal || "Still figuring it out"}</p></div></button>;
 }
 
-function ChatChip({ profile, active, onOpen }: { match: MatchRow; playerId: string; profile?: DatingProfile; active: boolean; onOpen: () => void }) {
+function ChatListButton({
+  profile,
+  unreadCount,
+  isOnline,
+  onOpen,
+}: {
+  match: MatchRow;
+  profile?: DatingProfile;
+  unreadCount: number;
+  isOnline: boolean;
+  onOpen: () => void;
+}) {
   if (!profile) return null;
-  return <button onClick={onOpen} className={`min-w-28 rounded-[1.5rem] border px-3 py-3 text-left ${active ? "border-pink-400 bg-pink-500/15" : "border-white/10 bg-white/5"}`}><p className="truncate text-sm font-semibold">{profile.display_name}</p><p className="mt-1 truncate text-xs text-white/60">{profile.location_label || profile.city}</p></button>;
+  return (
+    <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left transition hover:bg-white/10">
+      <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10">
+        {profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}
+        <span className={`absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#181a21] ${isOnline ? "bg-emerald-400" : "bg-zinc-500"}`}></span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="truncate text-xl font-black">{profile.display_name}, {profile.age}</h3>
+          {isProfileVerified(profile) ? <span className="shrink-0 rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
+        </div>
+        <p className="mt-1 text-sm text-white/65">{isOnline ? "Online" : "Offline"} · {profile.location_label || profile.city}</p>
+      </div>
+      {unreadCount ? (
+        <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-black text-white">
+          {unreadCount > 9 ? "9+" : unreadCount}
+        </span>
+      ) : null}
+    </button>
+  );
 }
 
-function ChatPanel({ activeMatchProfile, activeMessages, activePlayerId, chatDraft, setChatDraft, saving, onSend, onCommit }: { activeMatchProfile: DatingProfile; activeMessages: MessageRow[]; activePlayerId: string; chatDraft: string; setChatDraft: (value: string) => void; saving: boolean; onSend: () => void; onCommit: () => void; }) {
+function ChatPanel({
+  activeMatchProfile,
+  activeMessages,
+  activePlayerId,
+  chatDraft,
+  setChatDraft,
+  saving,
+  onSend,
+  onCommit,
+  onBack,
+  isOnline,
+  isTyping,
+}: {
+  activeMatchProfile: DatingProfile;
+  activeMessages: MessageRow[];
+  activePlayerId: string;
+  chatDraft: string;
+  setChatDraft: (value: string) => void;
+  saving: boolean;
+  onSend: () => void;
+  onCommit: () => void;
+  onBack: () => void;
+  isOnline: boolean;
+  isTyping: boolean;
+}) {
   return (
     <>
       <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/[0.06] p-4">
+        <button onClick={onBack} className="mb-4 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white">
+          Back to chats
+        </button>
         <div className="flex min-w-0 items-center gap-3">
-          <div className="h-20 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10">
+          <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10">
             {activeMatchProfile.photo_url ? <img src={activeMatchProfile.photo_url} alt={activeMatchProfile.display_name} className="h-full w-full object-cover" /> : null}
+            <span className={`absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#181a21] ${isOnline ? "bg-emerald-400" : "bg-zinc-500"}`}></span>
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="break-words text-2xl font-black">{activeMatchProfile.display_name}, {activeMatchProfile.age}</h3>
               {isProfileVerified(activeMatchProfile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
             </div>
-            <p className="mt-1 break-words text-sm text-white/65">{activeMatchProfile.location_label || activeMatchProfile.city}</p>
+            <p className="mt-1 break-words text-sm text-white/65">
+              {isTyping ? "Typing..." : isOnline ? "Online" : "Offline"} · {activeMatchProfile.location_label || activeMatchProfile.city}
+            </p>
           </div>
         </div>
       </div>
@@ -839,8 +1052,13 @@ function ChatPanel({ activeMatchProfile, activeMessages, activePlayerId, chatDra
 
             return (
               <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[86%] break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-lg ${isOwnMessage ? "bg-pink-500 text-white" : "bg-white/10 text-white/85"}`}>
-                  {message.body}
+                <div>
+                  <div className={`max-w-[86vw] break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-lg sm:max-w-[20rem] ${isOwnMessage ? "bg-pink-500 text-white" : "bg-white/10 text-white/85"}`}>
+                    {message.body}
+                  </div>
+                  {isOwnMessage ? (
+                    <p className="mt-1 text-right text-[11px] font-semibold text-white/45">{message.read_at ? "Seen" : "Sent"}</p>
+                  ) : null}
                 </div>
               </div>
             );
@@ -850,6 +1068,7 @@ function ChatPanel({ activeMatchProfile, activeMessages, activePlayerId, chatDra
             No messages yet. Start the conversation.
           </div>
         )}
+        {isTyping ? <p className="text-sm font-semibold text-pink-200">{activeMatchProfile.display_name} is typing...</p> : null}
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
