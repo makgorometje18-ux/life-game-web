@@ -99,12 +99,16 @@ const sortPair = (first: string, second: string) => (first < second ? [first, se
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
 const chatImagePrefix = "[chat-image]";
+const chatAudioPrefix = "[chat-audio]";
 const chatEmojis = ["😀", "😂", "😍", "😘", "🥰", "😎", "😢", "😡", "🔥", "❤️", "👍", "🙏", "🎉", "💯", "👀", "✨"];
 const rtcConfig: RTCConfiguration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+const voiceAudioConstraints: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 const isProfileVerified = (profile?: Pick<DatingProfile, "contact_verified" | "profile_verified" | "is_photo_verified" | "selfie_url">) =>
   Boolean(profile?.contact_verified || profile?.profile_verified || (profile?.is_photo_verified && profile.selfie_url));
 const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
 const chatImageUrl = (body: string) => body.replace(chatImagePrefix, "");
+const isChatAudioMessage = (body: string) => body.startsWith(chatAudioPrefix);
+const chatAudioUrl = (body: string) => body.replace(chatAudioPrefix, "");
 const formatLastSeen = (value?: string | null) => {
   if (!value) return "Last seen recently";
 
@@ -703,7 +707,7 @@ export default function PartnerScenePage() {
     if (!player || !activeMatch || !activeMatchProfile) return;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: kind === "video" });
+      const stream = await getCallStream(kind);
       setLocalCallStream(stream);
       const peerConnection = createPeerConnection(activeMatch.id, activeMatchProfile.user_id);
       stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
@@ -739,7 +743,7 @@ export default function PartnerScenePage() {
 
     try {
       setCallState((current) => (current ? { ...current, status: "connecting" } : current));
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callState.kind === "video" });
+      const stream = await getCallStream(callState.kind);
       setLocalCallStream(stream);
       const peerConnection = createPeerConnection(callState.matchId, callState.peerId);
       stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
@@ -763,6 +767,12 @@ export default function PartnerScenePage() {
   };
 
   const rejectCall = () => endCall(true);
+
+  const getCallStream = (kind: CallKind) =>
+    navigator.mediaDevices.getUserMedia({
+      audio: voiceAudioConstraints,
+      video: kind === "video" ? { facingMode: "user" } : false,
+    });
 
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localCallStream;
@@ -1084,6 +1094,53 @@ export default function PartnerScenePage() {
     }
   };
 
+  const sendVoiceNote = async (blob: Blob) => {
+    if (!player || !activeMatch || !blob.size) return;
+    setSaving(true);
+    setError("");
+
+    try {
+      const filePath = `${player.id}/voice-${activeMatch.id}-${Date.now()}.webm`;
+      const { error: uploadError } = await supabase.storage.from("dating-photos").upload(filePath, blob, {
+        contentType: blob.type || "audio/webm",
+        upsert: true,
+      });
+
+      if (uploadError) {
+        setError(`Could not upload voice note: ${uploadError.message}`);
+        setSaving(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from("dating-photos").getPublicUrl(filePath);
+      const { data: sentMessage, error: sendError } = await supabase
+        .from("dating_messages")
+        .insert({
+          match_id: activeMatch.id,
+          sender_id: player.id,
+          body: `${chatAudioPrefix}${publicUrlData.publicUrl}`,
+        })
+        .select("id, match_id, sender_id, body, created_at, read_at")
+        .single();
+
+      if (sendError) {
+        setError(schemaHelp);
+        setSaving(false);
+        return;
+      }
+
+      if (sentMessage) {
+        setMessages((current) => (current.some((message) => message.id === sentMessage.id) ? current : [...current, sentMessage as MessageRow]));
+      }
+      setStatus(`Voice note sent to ${activeMatchProfile?.display_name || "your match"}.`);
+    } catch (sendError) {
+      console.error("Dating voice note failed", sendError);
+      setError("Could not send the voice note right now.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const makeItOfficial = async () => {
     if (!player || !activeMatchProfile || saving) return;
     setSaving(true);
@@ -1241,6 +1298,7 @@ export default function PartnerScenePage() {
                 presence={presenceMap[activeMatchProfile.user_id]}
                 isTyping={Boolean(typingByMatch[activeMatch.id])}
                 onImageSend={(file) => void sendChatImage(file)}
+                onVoiceSend={(blob) => void sendVoiceNote(blob)}
                 onStartCall={(kind) => void startCall(kind)}
               />
             ) : matches.length ? (
@@ -1555,6 +1613,7 @@ function ChatPanel({
   presence,
   isTyping,
   onImageSend,
+  onVoiceSend,
   onStartCall,
 }: {
   activeMatchProfile: DatingProfile;
@@ -1570,12 +1629,53 @@ function ChatPanel({
   presence?: PlayerPresence;
   isTyping: boolean;
   onImageSend: (file: File) => void;
+  onVoiceSend: (blob: Blob) => void;
   onStartCall: (kind: "voice" | "video") => void;
 }) {
   const isOnline = Boolean(presence?.is_online);
   const presenceLabel = isTyping ? "Typing..." : isOnline ? "Online" : formatLastSeen(presence?.last_seen_at);
   const dividerLabel = formatChatDivider(activeMessages[0]?.created_at);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+
+  const toggleVoiceRecording = async () => {
+    if (isRecordingVoice) {
+      recorderRef.current?.stop();
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: voiceAudioConstraints });
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) recordedChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingVoice(false);
+        const voiceBlob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        if (voiceBlob.size) onVoiceSend(voiceBlob);
+      };
+
+      recorder.start();
+      setIsRecordingVoice(true);
+    } catch (recordError) {
+      console.error("Could not record voice note", recordError);
+      setIsRecordingVoice(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#071323] text-white">
@@ -1626,6 +1726,10 @@ function ChatPanel({
                     <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/10 shadow-sm">
                       <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" />
                     </div>
+                  ) : isChatAudioMessage(message.body) ? (
+                    <div className={`rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600" : "bg-[#152238]"}`}>
+                      <audio controls src={chatAudioUrl(message.body)} className="h-10 max-w-full" />
+                    </div>
                   ) : (
                     <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
                       {message.body}
@@ -1667,7 +1771,11 @@ function ChatPanel({
         ) : null}
 
         <div className="flex items-center gap-2">
-          <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Record voice message">
+          <button
+            onClick={() => void toggleVoiceRecording()}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition ${isRecordingVoice ? "bg-rose-500 text-white" : "text-sky-300 hover:bg-white/10"}`}
+            aria-label={isRecordingVoice ? "Stop recording voice note" : "Record voice message"}
+          >
             <MicIcon />
           </button>
           <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Send picture">
@@ -1706,6 +1814,7 @@ function ChatPanel({
             {chatDraft.trim() ? "Send" : <ThumbIcon />}
           </button>
         </div>
+        {isRecordingVoice ? <p className="mt-2 text-center text-xs font-semibold text-rose-200">Recording... tap the mic again to send</p> : null}
         <button onClick={onCommit} disabled={saving} className="mt-3 w-full rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:opacity-60">
           Make It Official
         </button>
