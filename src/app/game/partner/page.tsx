@@ -177,6 +177,8 @@ export default function PartnerScenePage() {
   const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const ringtoneContextRef = useRef<AudioContext | null>(null);
+  const ringtoneIntervalRef = useRef<number | null>(null);
   const playerMoney = player?.money ?? 0;
   const moneyLabel = moneyLabelFor(playerMoney);
 
@@ -645,6 +647,45 @@ export default function PartnerScenePage() {
       .is("read_at", null);
   };
 
+  const stopRingtone = () => {
+    if (ringtoneIntervalRef.current) {
+      window.clearInterval(ringtoneIntervalRef.current);
+      ringtoneIntervalRef.current = null;
+    }
+  };
+
+  const playRingPulse = () => {
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const context = ringtoneContextRef.current || new AudioContextClass();
+    ringtoneContextRef.current = context;
+    void context.resume();
+
+    const now = context.currentTime;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.58);
+    gain.connect(context.destination);
+
+    [0, 0.24].forEach((offset) => {
+      const oscillator = context.createOscillator();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, now + offset);
+      oscillator.frequency.exponentialRampToValueAtTime(660, now + offset + 0.18);
+      oscillator.connect(gain);
+      oscillator.start(now + offset);
+      oscillator.stop(now + offset + 0.22);
+    });
+  };
+
+  const startRingtone = () => {
+    if (ringtoneIntervalRef.current) return;
+    playRingPulse();
+    ringtoneIntervalRef.current = window.setInterval(playRingPulse, 1800);
+  };
+
   const stopCallStreams = () => {
     localCallStream?.getTracks().forEach((track) => track.stop());
     remoteCallStream?.getTracks().forEach((track) => track.stop());
@@ -687,6 +728,7 @@ export default function PartnerScenePage() {
   };
 
   const endCall = (notifyPeer = true) => {
+    stopRingtone();
     if (notifyPeer && player && callState) {
       sendCallSignal({
         type: "end",
@@ -742,6 +784,7 @@ export default function PartnerScenePage() {
     if (!player || !callState || !pendingOfferRef.current) return;
 
     try {
+      stopRingtone();
       setCallState((current) => (current ? { ...current, status: "connecting" } : current));
       const stream = await getCallStream(callState.kind);
       setLocalCallStream(stream);
@@ -781,6 +824,23 @@ export default function PartnerScenePage() {
   useEffect(() => {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteCallStream;
   }, [remoteCallStream]);
+
+  useEffect(() => {
+    if (callState?.status === "incoming" || callState?.status === "calling") {
+      startRingtone();
+      return;
+    }
+
+    stopRingtone();
+  }, [callState?.status]);
+
+  useEffect(() => {
+    return () => {
+      stopRingtone();
+      void ringtoneContextRef.current?.close();
+      ringtoneContextRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!player || !activeMatch) return;
