@@ -226,6 +226,7 @@ export default function PartnerScenePage() {
   const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
   const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
+  const typingHeartbeatRef = useRef<number | null>(null);
   const incomingTypingTimeoutRef = useRef<number | null>(null);
   const lastTypingSentRef = useRef("");
   const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
@@ -239,6 +240,20 @@ export default function PartnerScenePage() {
   const ringtoneIntervalRef = useRef<number | null>(null);
   const playerMoney = player?.money ?? 0;
   const moneyLabel = moneyLabelFor(playerMoney);
+
+  const broadcastTypingState = (isTyping: boolean, force = false) => {
+    if (!player || !activeMatchId || !typingChannelRef.current) return;
+
+    const typingKey = `${activeMatchId}:${isTyping}`;
+    if (!force && lastTypingSentRef.current === typingKey) return;
+
+    lastTypingSentRef.current = typingKey;
+    void typingChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { match_id: activeMatchId, sender_id: player.id, is_typing: isTyping },
+    });
+  };
 
   const loadScene = async (preserveMatchId?: string) => {
     try {
@@ -627,7 +642,7 @@ export default function PartnerScenePage() {
           incomingTypingTimeoutRef.current = window.setTimeout(() => {
             setTypingByMatch((current) => ({ ...current, [activeMatchId]: false }));
             incomingTypingTimeoutRef.current = null;
-          }, 6500);
+          }, 3600);
         }
       })
       .subscribe();
@@ -639,6 +654,15 @@ export default function PartnerScenePage() {
         window.clearTimeout(incomingTypingTimeoutRef.current);
         incomingTypingTimeoutRef.current = null;
       }
+      if (lastTypingSentRef.current === `${activeMatchId}:true`) {
+        void channel.send({
+          type: "broadcast",
+          event: "typing",
+          payload: { match_id: activeMatchId, sender_id: player.id, is_typing: false },
+        });
+        lastTypingSentRef.current = `${activeMatchId}:false`;
+      }
+      setTypingByMatch((current) => ({ ...current, [activeMatchId]: false }));
       typingChannelRef.current = null;
       void supabase.removeChannel(channel);
     };
@@ -648,38 +672,42 @@ export default function PartnerScenePage() {
     if (!player || activeTab !== "chat" || !activeMatchId || !typingChannelRef.current) return;
 
     const isTyping = Boolean(chatDraft.trim());
-    const typingKey = `${activeMatchId}:${isTyping}`;
 
     if (typingTimeoutRef.current) {
       window.clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
     }
 
-    if (lastTypingSentRef.current !== typingKey) {
-      lastTypingSentRef.current = typingKey;
-      void typingChannelRef.current.send({
-        type: "broadcast",
-        event: "typing",
-        payload: { match_id: activeMatchId, sender_id: player.id, is_typing: isTyping },
-      });
+    if (typingHeartbeatRef.current) {
+      window.clearInterval(typingHeartbeatRef.current);
+      typingHeartbeatRef.current = null;
     }
 
     if (isTyping) {
+      broadcastTypingState(true);
+      typingHeartbeatRef.current = window.setInterval(() => {
+        broadcastTypingState(true, true);
+      }, 1500);
       typingTimeoutRef.current = window.setTimeout(() => {
-        lastTypingSentRef.current = `${activeMatchId}:false`;
-        void typingChannelRef.current?.send({
-          type: "broadcast",
-          event: "typing",
-          payload: { match_id: activeMatchId, sender_id: player.id, is_typing: false },
-        });
+        if (typingHeartbeatRef.current) {
+          window.clearInterval(typingHeartbeatRef.current);
+          typingHeartbeatRef.current = null;
+        }
+        broadcastTypingState(false);
         typingTimeoutRef.current = null;
-      }, 4200);
+      }, 2500);
+    } else {
+      broadcastTypingState(false);
     }
 
     return () => {
       if (typingTimeoutRef.current) {
         window.clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = null;
+      }
+      if (typingHeartbeatRef.current) {
+        window.clearInterval(typingHeartbeatRef.current);
+        typingHeartbeatRef.current = null;
       }
     };
   }, [activeMatchId, activeTab, chatDraft, player]);
@@ -1205,7 +1233,10 @@ export default function PartnerScenePage() {
 
     try {
       setMessages((current) => [...current, tempMessage]);
-      if (shouldClearDraft) setChatDraft("");
+      if (shouldClearDraft) {
+        broadcastTypingState(false, true);
+        setChatDraft("");
+      }
 
       const { data: sentMessage, error: sendError } = await supabase
         .from("dating_messages")
