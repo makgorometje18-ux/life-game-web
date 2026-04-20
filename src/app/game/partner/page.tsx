@@ -46,6 +46,8 @@ type DatingProfile = {
   preferred_gender: string | null;
   relationship_goal: string | null;
   location_label: string | null;
+  latitude: number | null;
+  longitude: number | null;
   contact_verified: boolean;
   profile_verified: boolean;
   is_photo_verified: boolean;
@@ -108,6 +110,35 @@ const isProfileVerified = (profile?: Pick<DatingProfile, "contact_verified" | "p
   Boolean(profile?.contact_verified || profile?.profile_verified || (profile?.is_photo_verified && profile.selfie_url));
 const matchesPreferredGender = (profile: DatingProfile, preferredGender?: string | null) =>
   !preferredGender || preferredGender === "All" || profile.gender === preferredGender;
+type ProfileCoordinates = { latitude: number; longitude: number };
+const profileHasCoordinates = (profile?: Pick<DatingProfile, "latitude" | "longitude"> | null): profile is ProfileCoordinates =>
+  typeof profile?.latitude === "number" && typeof profile.longitude === "number";
+const distanceBetweenProfilesInKm = (
+  first?: Pick<DatingProfile, "latitude" | "longitude"> | null,
+  second?: Pick<DatingProfile, "latitude" | "longitude"> | null
+) => {
+  if (!profileHasCoordinates(first) || !profileHasCoordinates(second)) return null;
+
+  const earthRadiusKm = 6371;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const latitudeDelta = toRadians(second.latitude - first.latitude);
+  const longitudeDelta = toRadians(second.longitude - first.longitude);
+  const firstLatitude = toRadians(first.latitude);
+  const secondLatitude = toRadians(second.latitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(firstLatitude) * Math.cos(secondLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+};
+const formatDistanceLabel = (distanceKm: number | null) => {
+  if (distanceKm === null) return null;
+  if (distanceKm < 1) return "Less than 1 km away";
+  if (distanceKm < 10) return `${distanceKm.toFixed(1)} km away`;
+  return `${Math.round(distanceKm)} km away`;
+};
+const distanceLabelBetweenProfiles = (ownProfile?: DatingProfile | null, partnerProfile?: DatingProfile | null) =>
+  formatDistanceLabel(distanceBetweenProfilesInKm(ownProfile, partnerProfile));
 const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
 const chatImageUrl = (body: string) => body.replace(chatImagePrefix, "");
 const isChatAudioMessage = (body: string) => body.startsWith(chatAudioPrefix);
@@ -640,6 +671,8 @@ export default function PartnerScenePage() {
   const activeMatch = matches.find((match) => match.id === activeMatchId) || null;
   const activeMatchProfile = activeMatch ? profileMap[activeMatch.user_a === player?.id ? activeMatch.user_b : activeMatch.user_a] : null;
   const activeMessages = activeMatch ? messages.filter((message) => message.match_id === activeMatch.id) : [];
+  const ownDatingProfile = player ? profileMap[player.id] : null;
+  const distanceForProfile = (profile?: DatingProfile | null) => distanceLabelBetweenProfiles(ownDatingProfile, profile);
   const unreadCounts = useMemo(() => {
     if (!player) return {};
 
@@ -1360,7 +1393,7 @@ export default function PartnerScenePage() {
           <section className="rounded-[1.6rem] border border-white/10 bg-black/35 p-3 shadow-xl backdrop-blur">
             <p className="text-sm uppercase tracking-[0.3em] text-white/50">Encounters</p>
             <h2 className="mt-1 text-3xl font-bold">Swipe</h2>
-            {currentProfile ? <SwipeCard profile={currentProfile} saving={saving} onPass={passProfile} onLike={() => void likeProfile()} onSuperLike={() => void likeProfile(true)} /> : <EmptySwipeState />}
+            {currentProfile ? <SwipeCard profile={currentProfile} distanceLabel={distanceForProfile(currentProfile)} saving={saving} onPass={passProfile} onLike={() => void likeProfile()} onSuperLike={() => void likeProfile(true)} /> : <EmptySwipeState />}
           </section>
         ) : null}
 
@@ -1369,7 +1402,7 @@ export default function PartnerScenePage() {
             <p className="text-sm uppercase tracking-[0.3em] text-white/50">Explore</p>
             <h2 className="mt-2 text-3xl font-bold">Relationship goals</h2>
             <div className="mt-5 grid grid-cols-2 gap-3">{goalCards.length ? goalCards.map((card, index) => <GoalCard key={card.goal} goal={card.goal} count={card.count} palette={card.palette} featured={index === 0} />) : <DefaultExploreEmpty />}</div>
-            <div className="mt-6 space-y-3">{exploreProfiles.map((profile) => <ExploreRow key={profile.user_id} profile={profile} />)}</div>
+            <div className="mt-6 space-y-3">{exploreProfiles.map((profile) => <ExploreRow key={profile.user_id} profile={profile} distanceLabel={distanceForProfile(profile)} />)}</div>
           </section>
         ) : null}
 
@@ -1382,7 +1415,10 @@ export default function PartnerScenePage() {
               <StatBox label="People who liked you" value={likedMeIds.length} />
               <StatBox label="People you liked" value={likedIds.length} />
             </div>
-            <div className="mt-6 space-y-3">{matches.map((match) => <MatchRowButton key={match.id} match={match} playerId={player?.id || ""} profile={profileMap[match.user_a === player?.id ? match.user_b : match.user_a]} onOpen={() => { markMatchAsRead(match.id); setActiveMatchId(match.id); setActiveTab("chat"); }} />)}</div>
+            <div className="mt-6 space-y-3">{matches.map((match) => {
+              const profile = profileMap[match.user_a === player?.id ? match.user_b : match.user_a];
+              return <MatchRowButton key={match.id} match={match} playerId={player?.id || ""} profile={profile} distanceLabel={distanceForProfile(profile)} onOpen={() => { markMatchAsRead(match.id); setActiveMatchId(match.id); setActiveTab("chat"); }} />;
+            })}</div>
           </section>
         ) : null}
 
@@ -1414,6 +1450,7 @@ export default function PartnerScenePage() {
                 setChatDraft("");
                 }}
                 presence={presenceMap[activeMatchProfile.user_id]}
+                distanceLabel={distanceForProfile(activeMatchProfile)}
                 isTyping={Boolean(typingByMatch[activeMatch.id])}
                 onImageSend={(file) => void sendChatImage(file)}
                 onVoiceSend={(blob) => void sendVoiceNote(blob)}
@@ -1428,6 +1465,7 @@ export default function PartnerScenePage() {
                       key={match.id}
                       match={match}
                       profile={profile}
+                      distanceLabel={distanceForProfile(profile)}
                       unreadCount={unreadCounts[match.id] || 0}
                       presence={profile ? presenceMap[profile.user_id] : undefined}
                       onOpen={() => {
@@ -1508,6 +1546,7 @@ export default function PartnerScenePage() {
       {matchCelebrationProfile ? (
         <MatchCelebration
           profile={matchCelebrationProfile}
+          distanceLabel={distanceForProfile(matchCelebrationProfile)}
           onKeepSwiping={() => setMatchCelebrationProfile(null)}
           onOpenChat={() => {
             setMatchCelebrationProfile(null);
@@ -1521,10 +1560,12 @@ export default function PartnerScenePage() {
 
 function MatchCelebration({
   profile,
+  distanceLabel,
   onKeepSwiping,
   onOpenChat,
 }: {
   profile: DatingProfile;
+  distanceLabel: string | null;
   onKeepSwiping: () => void;
   onOpenChat: () => void;
 }) {
@@ -1561,7 +1602,7 @@ function MatchCelebration({
           <h3 className="text-2xl font-black">{profile.display_name}, {profile.age}</h3>
           {isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-xs font-bold text-slate-950">Verified</span> : null}
         </div>
-        <p className="mt-2 text-sm text-white/68">{profile.location_label || profile.city}</p>
+        <p className="mt-2 text-sm text-white/68">{profile.location_label || profile.city}{distanceLabel ? ` - ${distanceLabel}` : ""}</p>
         <p className="mx-auto mt-4 max-w-xs text-sm leading-6 text-white/76">{profile.relationship_goal || "Start with a hello and see where it goes."}</p>
 
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
@@ -1579,12 +1620,14 @@ function MatchCelebration({
 
 function SwipeCard({
   profile,
+  distanceLabel,
   saving,
   onPass,
   onLike,
   onSuperLike,
 }: {
   profile: DatingProfile;
+  distanceLabel: string | null;
   saving: boolean;
   onPass: () => void;
   onLike: () => void;
@@ -1637,6 +1680,7 @@ function SwipeCard({
             {isProfileVerified(profile) ? <span className="shrink-0 rounded-full bg-sky-400 px-2 py-1 text-[11px] font-bold text-slate-950">Verified</span> : null}
           </div>
           <p className="mt-1 truncate text-sm text-white/70">{profile.location_label || profile.city}</p>
+          {distanceLabel ? <p className="mt-1 text-sm font-semibold text-sky-200">{distanceLabel}</p> : null}
         </div>
         <button className="rounded-full bg-white/10 px-3 py-2 text-xl">⋯</button>
       </div>
@@ -1677,27 +1721,29 @@ function DefaultExploreEmpty() {
   );
 }
 
-function ExploreRow({ profile }: { profile: DatingProfile }) {
-  return <div className="flex gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3"><div className="h-24 w-20 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate text-xl font-bold">{profile.display_name}, {profile.age}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{profile.location_label || profile.city}</p><p className="mt-2 line-clamp-2 text-sm text-white/75">{profile.relationship_goal || "Still figuring it out"}</p></div></div>;
+function ExploreRow({ profile, distanceLabel }: { profile: DatingProfile; distanceLabel: string | null }) {
+  return <div className="flex gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3"><div className="h-24 w-20 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate text-xl font-bold">{profile.display_name}, {profile.age}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{profile.location_label || profile.city}{distanceLabel ? ` - ${distanceLabel}` : ""}</p><p className="mt-2 line-clamp-2 text-sm text-white/75">{profile.relationship_goal || "Still figuring it out"}</p></div></div>;
 }
 
 function StatBox({ label, value }: { label: string; value: number }) {
   return <div className="rounded-[1.7rem] border border-white/10 bg-white/5 p-4"><p className="text-sm uppercase tracking-[0.25em] text-white/50">{label}</p><p className="mt-2 text-3xl font-black">{value}</p></div>;
 }
 
-function MatchRowButton({ profile, onOpen }: { match: MatchRow; playerId: string; profile?: DatingProfile; onOpen: () => void }) {
+function MatchRowButton({ profile, distanceLabel, onOpen }: { match: MatchRow; playerId: string; profile?: DatingProfile; distanceLabel: string | null; onOpen: () => void }) {
   if (!profile) return null;
-  return <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left"><div className="h-20 w-16 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex items-center gap-2"><h3 className="text-lg font-bold">{profile.display_name}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{profile.relationship_goal || "Still figuring it out"}</p></div></button>;
+  return <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left"><div className="h-20 w-16 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex items-center gap-2"><h3 className="text-lg font-bold">{profile.display_name}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{distanceLabel || profile.location_label || profile.city}</p><p className="mt-1 text-sm text-white/65">{profile.relationship_goal || "Still figuring it out"}</p></div></button>;
 }
 
 function ChatListButton({
   profile,
+  distanceLabel,
   unreadCount,
   presence,
   onOpen,
 }: {
   match: MatchRow;
   profile?: DatingProfile;
+  distanceLabel: string | null;
   unreadCount: number;
   presence?: PlayerPresence;
   onOpen: () => void;
@@ -1717,7 +1763,7 @@ function ChatListButton({
           <h3 className="truncate text-xl font-black">{profile.display_name}, {profile.age}</h3>
           {isProfileVerified(profile) ? <span className="shrink-0 rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
         </div>
-        <p className="mt-1 text-sm text-white/65">{presenceLabel} - {profile.location_label || profile.city}</p>
+        <p className="mt-1 text-sm text-white/65">{presenceLabel} - {distanceLabel || profile.location_label || profile.city}</p>
       </div>
       {unreadCount ? (
         <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-black text-white">
@@ -1764,6 +1810,7 @@ function ChatPanel({
   onCommit,
   onBack,
   presence,
+  distanceLabel,
   isTyping,
   onImageSend,
   onVoiceSend,
@@ -1780,6 +1827,7 @@ function ChatPanel({
   onCommit: () => void;
   onBack: () => void;
   presence?: PlayerPresence;
+  distanceLabel: string | null;
   isTyping: boolean;
   onImageSend: (file: File) => void;
   onVoiceSend: (blob: Blob) => void;
@@ -1878,7 +1926,7 @@ function ChatPanel({
             {isProfileVerified(activeMatchProfile) ? <span className="shrink-0 rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-bold text-white">Verified</span> : null}
             <span className="text-sm font-black text-sky-300">v</span>
           </div>
-          <p className="truncate text-sm font-medium text-white/55">{presenceLabel}</p>
+          <p className="truncate text-sm font-medium text-white/55">{distanceLabel ? `${presenceLabel} - ${distanceLabel}` : presenceLabel}</p>
         </div>
 
         <div className="flex shrink-0 items-center gap-1 text-sky-300">
