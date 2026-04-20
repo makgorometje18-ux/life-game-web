@@ -1790,6 +1790,7 @@ function ChatPanel({
   const dividerLabel = formatChatDivider(activeMessages[0]?.created_at);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [openImageUrl, setOpenImageUrl] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -1892,9 +1893,14 @@ function ChatPanel({
               <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[78%] ${isOwnMessage ? "items-end" : "items-start"} flex flex-col`}>
                   {isChatImageMessage(message.body) ? (
-                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/10 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setOpenImageUrl(chatImageUrl(message.body))}
+                      className="overflow-hidden rounded-2xl border border-white/10 bg-white/10 text-left shadow-sm"
+                      aria-label="Open chat picture"
+                    >
                       <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" onLoad={() => scrollToLatestMessage("auto")} />
-                    </div>
+                    </button>
                   ) : isChatAudioMessage(message.body) ? (
                     <div className={`rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600" : "bg-[#152238]"}`}>
                       <audio controls src={chatAudioUrl(message.body)} className="h-10 max-w-full" onLoadedMetadata={() => scrollToLatestMessage("auto")} />
@@ -1990,6 +1996,25 @@ function ChatPanel({
           Make It Official
         </button>
       </div>
+
+      {openImageUrl ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/95 p-4" onClick={() => setOpenImageUrl("")}>
+          <button
+            type="button"
+            onClick={() => setOpenImageUrl("")}
+            className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-2xl font-black text-white backdrop-blur transition hover:bg-white/20"
+            aria-label="Close picture"
+          >
+            x
+          </button>
+          <img
+            src={openImageUrl}
+            alt="Opened chat picture"
+            className="max-h-[88vh] max-w-full rounded-2xl object-contain shadow-[0_28px_90px_rgba(0,0,0,0.65)]"
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
