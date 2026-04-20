@@ -145,34 +145,27 @@ select {
 
 .chat-logo-pattern {
   overflow: hidden;
-  background: #071323;
+  background:
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(7, 19, 35, 0.78), rgba(7, 19, 35, 0.92)),
+    #071323;
 }
 
-.chat-logo-pattern::before,
-.chat-logo-pattern::after {
+.chat-logo-pattern-content {
+  position: relative;
+}
+
+.chat-logo-pattern-content::before {
   content: "";
   position: absolute;
   inset: -48px;
-  background-image: url("/game-logo.png");
+  z-index: 0;
+  background-image: url("/game-logo-pattern.svg"), url("/game-logo-pattern.svg");
+  background-position: 0 0, 34px 38px;
   background-repeat: repeat;
-  mix-blend-mode: screen;
+  background-size: 58px 58px, 82px 82px;
+  opacity: 0.5;
   pointer-events: none;
-}
-
-.chat-logo-pattern::before {
-  background-size: 54px 54px;
-  background-position: 0 0;
-  filter: grayscale(1) contrast(1.55) brightness(1.55);
-  opacity: 0.18;
-  transform: rotate(-8deg) scale(1.08);
-}
-
-.chat-logo-pattern::after {
-  background-size: 74px 74px;
-  background-position: 28px 34px;
-  filter: grayscale(1) contrast(1.35) brightness(1.35);
-  opacity: 0.1;
-  transform: rotate(7deg) scale(1.05);
 }
 
 @media (min-width: 900px) and (min-aspect-ratio: 4 / 3) {

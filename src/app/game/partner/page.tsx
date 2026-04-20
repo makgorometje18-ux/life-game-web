@@ -1883,9 +1883,8 @@ function ChatPanel({
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain bg-[#071323] px-4 py-5">
-        <div className="chat-logo-pattern pointer-events-none absolute inset-0 z-0" aria-hidden="true" />
-        <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.08),transparent_28%),linear-gradient(180deg,rgba(7,19,35,0.22),rgba(7,19,35,0.42))]" aria-hidden="true" />
+      <div className="chat-logo-pattern relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5">
+        <div className="chat-logo-pattern-content flex min-h-full flex-col gap-4">
         <p className="relative z-10 text-center text-sm font-bold text-white/45">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
@@ -1926,7 +1925,8 @@ function ChatPanel({
           </div>
         )}
         {isTyping ? <p className="relative z-10 text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
-        <div ref={messagesEndRef} className="relative z-10 h-1 shrink-0" aria-hidden="true" />
+          <div ref={messagesEndRef} className="relative z-10 h-1 shrink-0" aria-hidden="true" />
+        </div>
       </div>
 
       <div className="shrink-0 border-t border-white/10 bg-[#0b1728] px-3 py-3">
