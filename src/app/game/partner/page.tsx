@@ -132,16 +132,16 @@ const formatChatDivider = (value?: string | null) => {
   });
 };
 
-const formatMessageStamp = (message: MessageRow) => {
-  const date = new Date(message.read_at || message.created_at);
-  if (Number.isNaN(date.getTime())) return message.read_at ? "Seen" : "Sent";
+const formatSentAt = (value?: string | null) => {
+  const date = value ? new Date(value) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
 
-  return `${message.read_at ? "Seen" : "Sent"} ${date.toLocaleString(undefined, {
+  return safeDate.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  })}`;
+  });
 };
 
 export default function PartnerScenePage() {
@@ -1268,34 +1268,42 @@ export default function PartnerScenePage() {
 
   return (
     <main
-      className={`min-h-screen px-4 pb-32 pt-24 transition-colors ${activeMatch ? "overflow-hidden" : ""} ${
-        isLightMode
-          ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
-          : "bg-[linear-gradient(180deg,#17181d_0%,#111318_28%,#090a0f_100%)] text-white"
+      className={`min-h-screen transition-colors ${
+        activeMatch
+          ? "overflow-hidden bg-[#071323] text-white"
+          : `px-4 pb-32 pt-24 ${
+              isLightMode
+                ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
+                : "bg-[linear-gradient(180deg,#17181d_0%,#111318_28%,#090a0f_100%)] text-white"
+            }`
       }`}
     >
-      <button
-        type="button"
-        onClick={() => { window.location.href = "/game"; }}
-        className={`fixed left-4 top-4 z-[80] rounded-full px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur transition ${
-          isLightMode
-            ? "border border-slate-200 bg-white/90 text-slate-950 hover:bg-white"
-            : "border border-white/15 bg-black/75 text-white hover:bg-black/85"
-        }`}
-      >
-        Back
-      </button>
-      <button
-        type="button"
-        onClick={() => setIsLightMode((current) => !current)}
-        className={`fixed right-4 top-4 z-[80] rounded-full px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur transition ${
-          isLightMode ? "bg-blue-600 text-white hover:bg-blue-500" : "bg-white text-slate-950 hover:bg-stone-100"
-        }`}
-      >
-        {isLightMode ? "Dark" : "Light"}
-      </button>
+      {!activeMatch ? (
+        <>
+          <button
+            type="button"
+            onClick={() => { window.location.href = "/game"; }}
+            className={`fixed left-4 top-4 z-[80] rounded-full px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur transition ${
+              isLightMode
+                ? "border border-slate-200 bg-white/90 text-slate-950 hover:bg-white"
+                : "border border-white/15 bg-black/75 text-white hover:bg-black/85"
+            }`}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsLightMode((current) => !current)}
+            className={`fixed right-4 top-4 z-[80] rounded-full px-5 py-3 text-sm font-semibold shadow-xl backdrop-blur transition ${
+              isLightMode ? "bg-blue-600 text-white hover:bg-blue-500" : "bg-white text-slate-950 hover:bg-stone-100"
+            }`}
+          >
+            {isLightMode ? "Dark" : "Light"}
+          </button>
+        </>
+      ) : null}
 
-      <div className="mx-auto flex w-full max-w-md flex-col gap-5">
+      <div className={`mx-auto flex w-full flex-col ${activeMatch ? "h-screen max-w-none gap-0" : "max-w-md gap-5"}`}>
         {error ? <p className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
 
         {activeTab === "swipe" ? (
@@ -1329,7 +1337,7 @@ export default function PartnerScenePage() {
         ) : null}
 
         {activeTab === "chat" ? (
-          <section className={activeMatch ? "fixed bottom-[5.7rem] left-1/2 top-[5.2rem] z-[60] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 overflow-hidden rounded-[2rem] border border-white/10 bg-[#071323] text-white shadow-2xl" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
+          <section className={activeMatch ? "fixed inset-0 z-[90] overflow-hidden bg-[#071323] text-white" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
             {!activeMatch ? (
               <>
                 <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
@@ -1425,7 +1433,7 @@ export default function PartnerScenePage() {
         />
       ) : null}
 
-      <nav className="fixed inset-x-0 bottom-0 z-[70] mx-auto flex max-w-md items-center justify-between rounded-t-[2rem] border border-white/10 bg-[#111318]/95 px-4 py-3 text-xs text-white/65 backdrop-blur">
+      {!activeMatch ? <nav className="fixed inset-x-0 bottom-0 z-[70] mx-auto flex max-w-md items-center justify-between rounded-t-[2rem] border border-white/10 bg-[#111318]/95 px-4 py-3 text-xs text-white/65 backdrop-blur">
         {[
           { id: "swipe", label: "Swipe", icon: "◉" },
           { id: "explore", label: "Explore", icon: "◎" },
@@ -1445,7 +1453,7 @@ export default function PartnerScenePage() {
             <span>{item.label}</span>
           </button>
         ))}
-      </nav>
+      </nav> : null}
 
       {matchCelebrationProfile ? (
         <MatchCelebration
@@ -1795,9 +1803,10 @@ function ChatPanel({
                       {message.body}
                     </div>
                   )}
-                  {isOwnMessage ? (
-                    <p className="mt-1 text-right text-[12px] font-medium text-white/45">{formatMessageStamp(message)}</p>
-                  ) : null}
+                  <p className={`mt-1 flex items-center gap-1 text-[12px] font-medium text-white/45 ${isOwnMessage ? "justify-end text-right" : "justify-start text-left"}`}>
+                    {isOwnMessage ? <span className="text-sky-300">{message.read_at ? "✓✓" : "✓"}</span> : null}
+                    <span>Sent {formatSentAt(message.created_at)}</span>
+                  </p>
                 </div>
               </div>
             );

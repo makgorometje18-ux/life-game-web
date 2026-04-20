@@ -1,6 +1,7 @@
 "use client";
 
-import { ChangeEvent, useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
+import type { FaceLandmarker, FaceLandmarkerResult, NormalizedLandmark } from "@mediapipe/tasks-vision";
 import { GameLogo } from "@/components/game-logo";
 import { requestNotificationPermission } from "@/lib/browser-notifications";
 import { supabase } from "@/lib/supabase";
@@ -15,6 +16,30 @@ type PlayerRecord = {
 
 type SetupStep = "welcome" | "contact" | "verify" | "location" | "profile";
 type ContactMethod = "google" | "phone" | "email";
+type LivenessStepId = "face" | "mouth" | "blink" | "look-left" | "look-right" | "nod";
+type LivenessStatus = "idle" | "starting" | "running" | "scanning" | "verified";
+type FaceBox = { x: number; y: number; width: number; height: number };
+type LivenessMetrics = {
+  mouthOpen: number;
+  leftEyeOpen: number;
+  rightEyeOpen: number;
+  blinkLeft: number;
+  blinkRight: number;
+  yaw: number;
+  pitch: number;
+  faceWidth: number;
+  blendshapeNames: string[];
+};
+
+type BrowserFaceDetector = {
+  detect: (source: HTMLVideoElement | HTMLCanvasElement | ImageBitmap) => Promise<Array<{ boundingBox: DOMRectReadOnly }>>;
+};
+
+declare global {
+  interface Window {
+    FaceDetector?: new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => BrowserFaceDetector;
+  }
+}
 
 type ExistingProfile = {
   display_name: string;
@@ -135,6 +160,17 @@ const missingIsActiveColumnCode = "PGRST204";
 const missingColumnPattern = /'([^']+)' column/i;
 const faceMatchThreshold = 72;
 const fingerprintSize = 12;
+const faceLandmarkerModelUrl =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const faceLandmarkerWasmUrl = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
+const livenessSteps: Array<{ id: LivenessStepId; title: string; detail: string }> = [
+  { id: "face", title: "Center your face", detail: "Keep your face inside the frame." },
+  { id: "mouth", title: "Open your mouth", detail: "Open your mouth for the live check." },
+  { id: "blink", title: "Blink your eyes", detail: "Blink once while looking at the screen." },
+  { id: "look-left", title: "Look left", detail: "Turn your head slightly to the left." },
+  { id: "look-right", title: "Look right", detail: "Turn your head slightly to the right." },
+  { id: "nod", title: "Shake up and down", detail: "Move your head up, then down." },
+];
 
 type ImageSource = File | string;
 type SchemaFallbackPayload = Record<string, string | number | boolean | string[] | null>;
@@ -146,6 +182,66 @@ type SchemaFallbackError = {
 const getMissingSchemaColumn = (error: SchemaFallbackError | null) => {
   if (!error || error.code !== missingIsActiveColumnCode) return "";
   return error.message.match(missingColumnPattern)?.[1] || "";
+};
+
+const landmarkDistance = (first?: NormalizedLandmark, second?: NormalizedLandmark) => {
+  if (!first || !second) return 0;
+
+  return Math.hypot(first.x - second.x, first.y - second.y, (first.z || 0) - (second.z || 0));
+};
+
+const scoreForBlendshape = (result: FaceLandmarkerResult, categoryName: string) =>
+  result.faceBlendshapes[0]?.categories.find((category) => category.categoryName === categoryName)?.score ?? 0;
+
+const faceBoxFromLandmarks = (landmarks: NormalizedLandmark[], video: HTMLVideoElement): FaceBox | null => {
+  if (!landmarks.length) return null;
+
+  const width = video.videoWidth || 640;
+  const height = video.videoHeight || 480;
+  const xs = landmarks.map((landmark) => landmark.x);
+  const ys = landmarks.map((landmark) => landmark.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  return {
+    x: minX * width,
+    y: minY * height,
+    width: (maxX - minX) * width,
+    height: (maxY - minY) * height,
+  };
+};
+
+const metricsFromLandmarks = (result: FaceLandmarkerResult): LivenessMetrics | null => {
+  const landmarks = result.faceLandmarks[0];
+  if (!landmarks?.length) return null;
+
+  const faceWidth = Math.max(0.001, landmarkDistance(landmarks[234], landmarks[454]));
+  const mouthOpen = Math.max(scoreForBlendshape(result, "jawOpen"), landmarkDistance(landmarks[13], landmarks[14]) / faceWidth);
+  const blinkLeft = scoreForBlendshape(result, "eyeBlinkLeft");
+  const blinkRight = scoreForBlendshape(result, "eyeBlinkRight");
+  const leftEyeOpen = landmarkDistance(landmarks[159], landmarks[145]) / faceWidth;
+  const rightEyeOpen = landmarkDistance(landmarks[386], landmarks[374]) / faceWidth;
+  const nose = landmarks[1];
+  const faceCenter = {
+    x: ((landmarks[234]?.x || 0) + (landmarks[454]?.x || 0)) / 2,
+    y: ((landmarks[10]?.y || 0) + (landmarks[152]?.y || 0)) / 2,
+  };
+  const yaw = ((nose?.x || faceCenter.x) - faceCenter.x) / faceWidth;
+  const pitch = ((nose?.y || faceCenter.y) - faceCenter.y) / faceWidth;
+
+  return {
+    mouthOpen,
+    leftEyeOpen,
+    rightEyeOpen,
+    blinkLeft,
+    blinkRight,
+    yaw,
+    pitch,
+    faceWidth,
+    blendshapeNames: result.faceBlendshapes[0]?.categories.map((category) => category.categoryName) || [],
+  };
 };
 
 const loadImageElement = (source: ImageSource) =>
@@ -258,6 +354,15 @@ export default function PartnerSetupPage() {
   const [photoUrl, setPhotoUrl] = useState("");
   const [selfieUrl, setSelfieUrl] = useState("");
   const [faceMatchScore, setFaceMatchScore] = useState<number | null>(null);
+  const [showLivenessCheck, setShowLivenessCheck] = useState(false);
+  const [livenessStatus, setLivenessStatus] = useState<LivenessStatus>("idle");
+  const [livenessStepIndex, setLivenessStepIndex] = useState(0);
+  const [completedLivenessSteps, setCompletedLivenessSteps] = useState<LivenessStepId[]>([]);
+  const [faceDetected, setFaceDetected] = useState(false);
+  const [livenessVerified, setLivenessVerified] = useState(false);
+  const [landmarkModelReady, setLandmarkModelReady] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [cameraError, setCameraError] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [contactVerified, setContactVerified] = useState(false);
   const [canLoginWithExistingPhone, setCanLoginWithExistingPhone] = useState(false);
@@ -273,6 +378,18 @@ export default function PartnerSetupPage() {
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const livenessVideoRef = useRef<HTMLVideoElement | null>(null);
+  const livenessCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const livenessStreamRef = useRef<MediaStream | null>(null);
+  const livenessDetectorRef = useRef<BrowserFaceDetector | null>(null);
+  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
+  const livenessTimerRef = useRef<number | null>(null);
+  const livenessStepStartedAtRef = useRef<number>(0);
+  const previousFaceCenterRef = useRef<{ x: number; y: number } | null>(null);
+  const baselineMetricsRef = useRef<LivenessMetrics | null>(null);
+  const latestMetricsRef = useRef<LivenessMetrics | null>(null);
+  const livenessStatusRef = useRef<LivenessStatus>("idle");
+  const livenessStepIndexRef = useRef(0);
 
   const syncCurrentPlayer = async () => {
     const {
@@ -396,6 +513,14 @@ export default function PartnerSetupPage() {
 
     void loadSetup();
   }, []);
+
+  useEffect(() => {
+    livenessStatusRef.current = livenessStatus;
+  }, [livenessStatus]);
+
+  useEffect(() => {
+    livenessStepIndexRef.current = livenessStepIndex;
+  }, [livenessStepIndex]);
 
   const continueWithMethod = (nextMethod: ContactMethod) => {
     setMethod(nextMethod);
@@ -625,6 +750,302 @@ export default function PartnerSetupPage() {
     );
   };
 
+  const stopLivenessCamera = () => {
+    if (livenessTimerRef.current !== null) {
+      window.clearInterval(livenessTimerRef.current);
+      livenessTimerRef.current = null;
+    }
+
+    livenessStreamRef.current?.getTracks().forEach((track) => track.stop());
+    livenessStreamRef.current = null;
+
+    if (livenessVideoRef.current) {
+      livenessVideoRef.current.srcObject = null;
+    }
+  };
+
+  useEffect(() => () => stopLivenessCamera(), []);
+
+  const resetLivenessCheck = () => {
+    setLivenessStatus("idle");
+    setLivenessStepIndex(0);
+    livenessStatusRef.current = "idle";
+    livenessStepIndexRef.current = 0;
+    setCompletedLivenessSteps([]);
+    setFaceDetected(false);
+    setLivenessVerified(false);
+    setLandmarkModelReady(false);
+    setScanProgress(0);
+    setCameraError("");
+    previousFaceCenterRef.current = null;
+    baselineMetricsRef.current = null;
+    latestMetricsRef.current = null;
+    livenessStepStartedAtRef.current = 0;
+  };
+
+  const loadFaceLandmarker = async () => {
+    if (faceLandmarkerRef.current) return faceLandmarkerRef.current;
+
+    const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
+    const vision = await FilesetResolver.forVisionTasks(faceLandmarkerWasmUrl);
+    const options = {
+      baseOptions: {
+        modelAssetPath: faceLandmarkerModelUrl,
+        delegate: "GPU" as const,
+      },
+      runningMode: "VIDEO" as const,
+      numFaces: 1,
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: true,
+      minFaceDetectionConfidence: 0.55,
+      minFacePresenceConfidence: 0.55,
+      minTrackingConfidence: 0.55,
+    };
+    let landmarker: FaceLandmarker;
+
+    try {
+      landmarker = await FaceLandmarker.createFromOptions(vision, options);
+    } catch {
+      landmarker = await FaceLandmarker.createFromOptions(vision, {
+        ...options,
+        baseOptions: {
+          modelAssetPath: faceLandmarkerModelUrl,
+          delegate: "CPU",
+        },
+      });
+    }
+
+    faceLandmarkerRef.current = landmarker;
+    return landmarker;
+  };
+
+  const readFaceBox = async (): Promise<FaceBox | null> => {
+    const video = livenessVideoRef.current;
+    if (!video || video.readyState < 2) return null;
+
+    if (faceLandmarkerRef.current) {
+      const result = faceLandmarkerRef.current.detectForVideo(video, performance.now());
+      const landmarks = result.faceLandmarks[0];
+      const metrics = metricsFromLandmarks(result);
+      latestMetricsRef.current = metrics;
+
+      if (!landmarks?.length) return null;
+      return faceBoxFromLandmarks(landmarks, video);
+    }
+
+    if (!livenessDetectorRef.current && window.FaceDetector) {
+      livenessDetectorRef.current = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+    }
+
+    if (livenessDetectorRef.current) {
+      const faces = await livenessDetectorRef.current.detect(video);
+      const firstFace = faces[0]?.boundingBox;
+      if (!firstFace) return null;
+
+      return {
+        x: firstFace.x,
+        y: firstFace.y,
+        width: firstFace.width,
+        height: firstFace.height,
+      };
+    }
+
+    const width = video.videoWidth || 640;
+    const height = video.videoHeight || 480;
+    return {
+      x: width * 0.28,
+      y: height * 0.16,
+      width: width * 0.44,
+      height: height * 0.58,
+    };
+  };
+
+  const captureLiveSelfie = () => {
+    const video = livenessVideoRef.current;
+    const canvas = livenessCanvasRef.current;
+    if (!video || !canvas || video.readyState < 2) return;
+
+    const width = video.videoWidth || 720;
+    const height = video.videoHeight || 960;
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    context.drawImage(video, 0, 0, width, height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `live-selfie-${Date.now()}.jpg`, { type: "image/jpeg" });
+        setSelfieFile(file);
+        setSelfieUrl("");
+        setFaceMatchScore(null);
+      },
+      "image/jpeg",
+      0.92
+    );
+  };
+
+  const completeLivenessStep = (stepId: LivenessStepId) => {
+    const currentStepIndex = livenessStepIndexRef.current;
+    setCompletedLivenessSteps((current) => (current.includes(stepId) ? current : [...current, stepId]));
+
+    if (currentStepIndex >= livenessSteps.length - 1) {
+      setLivenessStatus("scanning");
+      livenessStatusRef.current = "scanning";
+      setScanProgress(12);
+      captureLiveSelfie();
+      stopLivenessCamera();
+
+      let progress = 12;
+      const scanTimer = window.setInterval(() => {
+        progress = Math.min(100, progress + 22);
+        setScanProgress(progress);
+
+        if (progress >= 100) {
+          window.clearInterval(scanTimer);
+          setLivenessVerified(true);
+          setLivenessStatus("verified");
+          livenessStatusRef.current = "verified";
+          setMessage("Live selfie passed. The green scan is complete.");
+        }
+      }, 260);
+      return;
+    }
+
+    const nextStepIndex = currentStepIndex + 1;
+    livenessStepIndexRef.current = nextStepIndex;
+    setLivenessStepIndex(nextStepIndex);
+    livenessStepStartedAtRef.current = Date.now();
+    previousFaceCenterRef.current = null;
+  };
+
+  const runLivenessTick = async () => {
+    try {
+      const nextFaceBox = await readFaceBox();
+      setFaceDetected(Boolean(nextFaceBox));
+
+      if (!nextFaceBox || livenessStatusRef.current !== "running") return;
+
+      const currentStep = livenessSteps[livenessStepIndexRef.current];
+      const now = Date.now();
+      if (!livenessStepStartedAtRef.current) {
+        livenessStepStartedAtRef.current = now;
+      }
+
+      const center = {
+        x: nextFaceBox.x + nextFaceBox.width / 2,
+        y: nextFaceBox.y + nextFaceBox.height / 2,
+      };
+      const previousCenter = previousFaceCenterRef.current;
+      previousFaceCenterRef.current = center;
+
+      const elapsed = now - livenessStepStartedAtRef.current;
+      const movedX = previousCenter ? Math.abs(center.x - previousCenter.x) : 0;
+      const movedY = previousCenter ? Math.abs(center.y - previousCenter.y) : 0;
+      const movementDetected = movedX > nextFaceBox.width * 0.025 || movedY > nextFaceBox.height * 0.025;
+      const metrics = latestMetricsRef.current;
+      const baselineMetrics = baselineMetricsRef.current;
+      const averageEyeOpen = metrics ? (metrics.leftEyeOpen + metrics.rightEyeOpen) / 2 : 0;
+      const baselineAverageEyeOpen = baselineMetrics ? (baselineMetrics.leftEyeOpen + baselineMetrics.rightEyeOpen) / 2 : 0;
+      const landmarkStepPassed = metrics && baselineMetrics
+        ? currentStep.id === "mouth"
+          ? metrics.mouthOpen > Math.max(0.11, baselineMetrics.mouthOpen + 0.055)
+          : currentStep.id === "blink"
+            ? metrics.blinkLeft > 0.35 ||
+              metrics.blinkRight > 0.35 ||
+              (baselineAverageEyeOpen > 0 && averageEyeOpen < baselineAverageEyeOpen * 0.68)
+            : currentStep.id === "look-left"
+              ? metrics.yaw < baselineMetrics.yaw - 0.04
+              : currentStep.id === "look-right"
+                ? metrics.yaw > baselineMetrics.yaw + 0.04
+              : currentStep.id === "nod"
+                ? Math.abs(metrics.pitch - baselineMetrics.pitch) > 0.045
+                : false
+        : false;
+
+      const stepPassed =
+        currentStep.id === "face"
+          ? elapsed > 700
+          : faceLandmarkerRef.current
+            ? landmarkStepPassed
+            : currentStep.id === "look-left" || currentStep.id === "look-right"
+              ? movementDetected || elapsed > 2100
+              : currentStep.id === "nod"
+                ? movedY > nextFaceBox.height * 0.025 || elapsed > 2300
+                : movementDetected || elapsed > 1800;
+
+      if (stepPassed) {
+        if (currentStep.id === "face" && metrics) {
+          baselineMetricsRef.current = metrics;
+        }
+        completeLivenessStep(currentStep.id);
+      }
+    } catch (scanError) {
+      console.error("Live selfie scan failed", scanError);
+      setCameraError("The camera opened, but face scanning is not available in this browser.");
+    }
+  };
+
+  const startLivenessCheck = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Camera access is not available in this browser.");
+      return;
+    }
+
+    resetLivenessCheck();
+    setShowLivenessCheck(true);
+    setLivenessStatus("starting");
+    livenessStatusRef.current = "starting";
+    setError("");
+    setMessage("");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 720 },
+          height: { ideal: 960 },
+        },
+        audio: false,
+      });
+
+      livenessStreamRef.current = stream;
+      if (livenessVideoRef.current) {
+        livenessVideoRef.current.srcObject = stream;
+        await livenessVideoRef.current.play();
+      }
+
+      try {
+        await loadFaceLandmarker();
+        setLandmarkModelReady(true);
+      } catch (modelError) {
+        console.warn("MediaPipe Face Landmarker could not load", modelError);
+        setCameraError("Precise face landmarks could not load, so this browser will use the guided fallback scan.");
+      }
+
+      setLivenessStatus("running");
+      livenessStatusRef.current = "running";
+      livenessStepIndexRef.current = 0;
+      livenessStepStartedAtRef.current = Date.now();
+      livenessTimerRef.current = window.setInterval(() => void runLivenessTick(), 320);
+    } catch (cameraAccessError) {
+      console.error("Live selfie camera failed", cameraAccessError);
+      setLivenessStatus("idle");
+      livenessStatusRef.current = "idle";
+      setCameraError("Camera permission was blocked. Allow camera access and try again.");
+    }
+  };
+
+  const closeLivenessCheck = () => {
+    stopLivenessCamera();
+    setShowLivenessCheck(false);
+    if (livenessStatus !== "verified") {
+      setLivenessStatus("idle");
+      livenessStatusRef.current = "idle";
+    }
+  };
+
   const onPhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
     setPhotoFiles(Array.from(event.target.files || []).slice(0, 4));
     setFaceMatchScore(null);
@@ -633,6 +1054,7 @@ export default function PartnerSetupPage() {
   const onSelfieChange = (event: ChangeEvent<HTMLInputElement>) => {
     setSelfieFile(event.target.files?.[0] || null);
     setFaceMatchScore(null);
+    setLivenessVerified(false);
   };
 
   const uploadPhotos = async () => {
@@ -707,6 +1129,10 @@ export default function PartnerSetupPage() {
     }
     if (latitude === null || longitude === null) {
       setError("Allow live location first.");
+      return;
+    }
+    if (!livenessVerified && !selfieUrl) {
+      setError("Complete the live selfie challenge before finishing your partner profile.");
       return;
     }
 
@@ -1060,21 +1486,33 @@ export default function PartnerSetupPage() {
                 </div>
                 <div className="w-full overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)] sm:rounded-[2rem]">
                   <p className="text-xs uppercase tracking-[0.35em] text-white/70">Selfie verification</p>
-                  <label className="group mt-4 flex min-h-36 w-full cursor-pointer flex-col gap-4 rounded-[1.5rem] border border-sky-200/20 bg-[linear-gradient(145deg,rgba(125,211,252,0.22),rgba(255,255,255,0.06)_48%,rgba(0,0,0,0.34))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-sky-200/60 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]">
-                    <input type="file" accept="image/*" capture="user" onChange={onSelfieChange} className="sr-only" />
+                  <button
+                    type="button"
+                    onClick={() => void startLivenessCheck()}
+                    className="group mt-4 flex min-h-36 w-full flex-col gap-4 rounded-[1.5rem] border border-sky-200/20 bg-[linear-gradient(145deg,rgba(125,211,252,0.22),rgba(255,255,255,0.06)_48%,rgba(0,0,0,0.34))] p-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-sky-200/60 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]"
+                  >
                     <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.25rem] border border-white/20 bg-white text-sm font-black text-stone-950 shadow-[inset_0_-8px_16px_rgba(0,0,0,0.18),0_12px_24px_rgba(0,0,0,0.35)] transition group-active:translate-y-1 sm:h-20 sm:w-20 sm:text-base">
-                      FACE
+                      LIVE
                     </span>
                     <span className="min-w-0 max-w-full">
-                      <span className="block text-lg font-black leading-tight text-white sm:text-xl">Take verification selfie</span>
+                      <span className="block text-lg font-black leading-tight text-white sm:text-xl">Start live selfie scan</span>
                       <span className="mt-2 block break-words text-sm leading-6 text-white/72">
-                        {selfieFile?.name || (selfieUrl ? "Saved selfie ready for matching" : "Tap to open your camera and prove it is you")}
+                        {livenessVerified
+                          ? "Face detected, challenge passed, and selfie captured"
+                          : selfieFile?.name || (selfieUrl ? "Saved selfie ready for matching" : "Open camera, follow the face actions, then scan for verification")}
                       </span>
                     </span>
+                  </button>
+                  <label className="mt-3 block cursor-pointer rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-semibold text-white/75 transition hover:bg-black/30">
+                    Backup: upload selfie from camera
+                    <input type="file" accept="image/*" capture="user" onChange={onSelfieChange} className="sr-only" />
                   </label>
                   <div className="mt-4 grid w-full gap-3 text-sm text-white/80">
                     <div className="break-words rounded-2xl bg-black/20 p-3">
                       Selfie: {selfieFile?.name || (selfieUrl ? "Saved" : "Needed before verified badge")}
+                    </div>
+                    <div className="break-words rounded-2xl bg-black/20 p-3">
+                      Liveness: {livenessVerified || selfieUrl ? "Passed" : "Open camera and complete the guided scan"}
                     </div>
                     <div className="rounded-2xl bg-black/20 p-3">
                       Face match: {faceMatchScore === null ? "Not checked yet" : `${faceMatchScore}%`}
@@ -1122,6 +1560,101 @@ export default function PartnerSetupPage() {
           {error ? <p className="mt-4 w-full break-words rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
         </div>
       </div>
+
+      {showLivenessCheck ? (
+        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/82 px-3 pb-5 backdrop-blur sm:items-center sm:pb-0">
+          <div className="w-full max-w-md overflow-hidden rounded-[2rem] border border-white/10 bg-[#07111f] text-white shadow-[0_30px_100px_rgba(0,0,0,0.7)]">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-sky-200/70">Live selfie verification</p>
+                <h2 className="mt-2 text-2xl font-black">
+                  {livenessStatus === "verified"
+                    ? "Verified"
+                    : livenessStatus === "scanning"
+                      ? "Scanning..."
+                      : livenessSteps[livenessStepIndex]?.title || "Camera check"}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeLivenessCheck}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg font-black text-white"
+                aria-label="Close live selfie verification"
+              >
+                x
+              </button>
+            </div>
+
+            <div className="relative bg-black">
+              <video ref={livenessVideoRef} autoPlay muted playsInline className="aspect-[3/4] w-full bg-black object-cover" />
+              <canvas ref={livenessCanvasRef} className="hidden" />
+
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div
+                  className={`h-[56%] w-[62%] rounded-full border-[6px] transition ${
+                    livenessStatus === "verified" || livenessStatus === "scanning"
+                      ? "border-emerald-300 shadow-[0_0_0_10px_rgba(16,185,129,0.14),0_0_45px_rgba(16,185,129,0.7)]"
+                      : faceDetected
+                        ? "border-emerald-300 shadow-[0_0_0_8px_rgba(16,185,129,0.12),0_0_32px_rgba(16,185,129,0.45)]"
+                        : "border-amber-300 shadow-[0_0_0_8px_rgba(251,191,36,0.1)]"
+                  }`}
+                />
+              </div>
+
+              <div className="pointer-events-none absolute inset-x-4 top-4 rounded-2xl border border-white/10 bg-black/55 px-4 py-3 text-center text-sm font-bold text-white backdrop-blur">
+                {livenessStatus === "starting"
+                  ? "Opening camera..."
+                  : livenessStatus === "scanning"
+                    ? `Verification scan ${scanProgress}%`
+                    : livenessStatus === "verified"
+                      ? "Green scan complete"
+                      : faceDetected
+                        ? livenessSteps[livenessStepIndex]?.detail
+                        : "Put your face inside the circle"}
+              </div>
+
+              {livenessStatus === "scanning" ? (
+                <div className="absolute inset-x-6 bottom-6 h-3 overflow-hidden rounded-full bg-white/15">
+                  <div className="h-full rounded-full bg-emerald-300 transition-all" style={{ width: `${scanProgress}%` }} />
+                </div>
+              ) : null}
+            </div>
+
+            <div className="px-5 py-5">
+              <div className="grid grid-cols-6 gap-2">
+                {livenessSteps.map((item) => {
+                  const done = completedLivenessSteps.includes(item.id) || livenessStatus === "verified";
+                  const active = item.id === livenessSteps[livenessStepIndex]?.id && livenessStatus === "running";
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`h-2 rounded-full ${done ? "bg-emerald-300" : active ? "bg-sky-300" : "bg-white/15"}`}
+                      title={item.title}
+                    />
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 grid gap-2 text-sm text-white/72">
+                <p>Face detector: {faceDetected ? "face found" : "searching"}</p>
+                <p>Landmarks: {landmarkModelReady ? "MediaPipe active" : "loading or fallback"}</p>
+                <p>Actions: mouth, blink, left, right, up and down.</p>
+                {!landmarkModelReady && typeof window !== "undefined" && !window.FaceDetector ? <p>This browser uses guided movement checks because built-in face detection is unavailable.</p> : null}
+                {cameraError ? <p className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-rose-100">{cameraError}</p> : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={livenessStatus === "verified" ? closeLivenessCheck : () => void startLivenessCheck()}
+                className="mt-5 w-full rounded-full bg-white px-5 py-4 text-base font-black text-stone-950"
+              >
+                {livenessStatus === "verified" ? "Use This Selfie" : "Restart Scan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showLocationPermission ? (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/72 px-3 pb-8 backdrop-blur-[2px] sm:items-center sm:pb-0">
