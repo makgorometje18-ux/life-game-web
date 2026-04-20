@@ -144,12 +144,35 @@ select {
 }
 
 .chat-logo-pattern {
+  overflow: hidden;
+  background: #071323;
+}
+
+.chat-logo-pattern::before,
+.chat-logo-pattern::after {
+  content: "";
+  position: absolute;
+  inset: -48px;
   background-image: url("/game-logo.png");
   background-repeat: repeat;
-  background-size: 86px 86px;
-  background-position: 18px 22px;
-  opacity: 0.045;
-  filter: grayscale(0.2) saturate(1.15);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.chat-logo-pattern::before {
+  background-size: 54px 54px;
+  background-position: 0 0;
+  filter: grayscale(1) contrast(1.55) brightness(1.55);
+  opacity: 0.18;
+  transform: rotate(-8deg) scale(1.08);
+}
+
+.chat-logo-pattern::after {
+  background-size: 74px 74px;
+  background-position: 28px 34px;
+  filter: grayscale(1) contrast(1.35) brightness(1.35);
+  opacity: 0.1;
+  transform: rotate(7deg) scale(1.05);
 }
 
 @media (min-width: 900px) and (min-aspect-ratio: 4 / 3) {

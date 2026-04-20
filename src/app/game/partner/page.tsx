@@ -1885,7 +1885,7 @@ function ChatPanel({
 
       <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain bg-[#071323] px-4 py-5">
         <div className="chat-logo-pattern pointer-events-none absolute inset-0 z-0" aria-hidden="true" />
-        <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.08),transparent_28%),linear-gradient(180deg,rgba(7,19,35,0.58),rgba(7,19,35,0.82))]" aria-hidden="true" />
+        <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.08),transparent_28%),linear-gradient(180deg,rgba(7,19,35,0.22),rgba(7,19,35,0.42))]" aria-hidden="true" />
         <p className="relative z-10 text-center text-sm font-bold text-white/45">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
