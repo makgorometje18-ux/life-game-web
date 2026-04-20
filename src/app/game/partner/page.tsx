@@ -149,12 +149,10 @@ const chatNotificationBody = (body: string) => {
   return body || "Open the inbox to reply.";
 };
 const formatLastSeen = (value?: string | null) => {
-  if (!value) return "Last seen recently";
+  const date = value ? new Date(value) : null;
+  const safeDate = date && !Number.isNaN(date.getTime()) ? date : new Date();
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Last seen recently";
-
-  return `Last seen ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${date.toLocaleTimeString(undefined, {
+  return `Last seen ${safeDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}, ${safeDate.toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
   })}`;
@@ -370,7 +368,7 @@ export default function PartnerScenePage() {
 
         nextPresenceMap = ((presenceRows || []) as Array<{ id: string; is_online: boolean | null; updated_at: string | null }>).reduce<Record<string, PlayerPresence>>(
           (accumulator, row) => {
-            accumulator[row.id] = { is_online: Boolean(row.is_online), last_seen_at: row.updated_at };
+            accumulator[row.id] = { is_online: Boolean(row.is_online), last_seen_at: row.updated_at || new Date().toISOString() };
             return accumulator;
           },
           {}
@@ -503,7 +501,11 @@ export default function PartnerScenePage() {
           ...current,
           ...((presenceRows || []) as Array<{ id: string; is_online: boolean | null; updated_at: string | null }>).reduce<Record<string, PlayerPresence>>(
             (accumulator, row) => {
-              accumulator[row.id] = { is_online: Boolean(row.is_online), last_seen_at: row.updated_at };
+              const isOnline = Boolean(row.is_online);
+              accumulator[row.id] = {
+                is_online: isOnline,
+                last_seen_at: row.updated_at || current[row.id]?.last_seen_at || new Date().toISOString(),
+              };
               return accumulator;
             },
             {}
@@ -533,7 +535,13 @@ export default function PartnerScenePage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "players" }, (payload) => {
         const row = payload.new as { id?: string; is_online?: boolean | null; updated_at?: string | null };
         if (!row.id || !presenceIds.includes(row.id)) return;
-        setPresenceMap((current) => ({ ...current, [row.id as string]: { is_online: Boolean(row.is_online), last_seen_at: row.updated_at || null } }));
+        setPresenceMap((current) => ({
+          ...current,
+          [row.id as string]: {
+            is_online: Boolean(row.is_online),
+            last_seen_at: row.updated_at || current[row.id as string]?.last_seen_at || new Date().toISOString(),
+          },
+        }));
       })
       .subscribe();
 
@@ -563,9 +571,10 @@ export default function PartnerScenePage() {
       setPresenceMap((current) => {
         const next = { ...current };
         presenceIds.forEach((id) => {
+          const isOnline = onlineIds.has(id);
           next[id] = {
-            is_online: onlineIds.has(id),
-            last_seen_at: onlineIds.has(id) ? new Date().toISOString() : next[id]?.last_seen_at || null,
+            is_online: isOnline,
+            last_seen_at: isOnline ? new Date().toISOString() : next[id]?.last_seen_at || new Date().toISOString(),
           };
         });
         return next;
