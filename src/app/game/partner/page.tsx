@@ -221,6 +221,7 @@ export default function PartnerScenePage() {
   const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
   const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
+  const incomingTypingTimeoutRef = useRef<number | null>(null);
   const lastTypingSentRef = useRef("");
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const callChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -589,13 +590,30 @@ export default function PartnerScenePage() {
         const typingPayload = payload as { match_id?: string; sender_id?: string; is_typing?: boolean };
         if (typingPayload.match_id !== activeMatchId || typingPayload.sender_id === player.id) return;
 
-        setTypingByMatch((current) => ({ ...current, [activeMatchId]: Boolean(typingPayload.is_typing) }));
+        const isTyping = Boolean(typingPayload.is_typing);
+        setTypingByMatch((current) => ({ ...current, [activeMatchId]: isTyping }));
+
+        if (incomingTypingTimeoutRef.current) {
+          window.clearTimeout(incomingTypingTimeoutRef.current);
+          incomingTypingTimeoutRef.current = null;
+        }
+
+        if (isTyping) {
+          incomingTypingTimeoutRef.current = window.setTimeout(() => {
+            setTypingByMatch((current) => ({ ...current, [activeMatchId]: false }));
+            incomingTypingTimeoutRef.current = null;
+          }, 6500);
+        }
       })
       .subscribe();
 
     typingChannelRef.current = channel;
 
     return () => {
+      if (incomingTypingTimeoutRef.current) {
+        window.clearTimeout(incomingTypingTimeoutRef.current);
+        incomingTypingTimeoutRef.current = null;
+      }
       typingChannelRef.current = null;
       void supabase.removeChannel(channel);
     };
@@ -606,17 +624,19 @@ export default function PartnerScenePage() {
 
     const isTyping = Boolean(chatDraft.trim());
     const typingKey = `${activeMatchId}:${isTyping}`;
-    if (lastTypingSentRef.current === typingKey) return;
-
-    lastTypingSentRef.current = typingKey;
-    void typingChannelRef.current.send({
-      type: "broadcast",
-      event: "typing",
-      payload: { match_id: activeMatchId, sender_id: player.id, is_typing: isTyping },
-    });
 
     if (typingTimeoutRef.current) {
       window.clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+
+    if (lastTypingSentRef.current !== typingKey) {
+      lastTypingSentRef.current = typingKey;
+      void typingChannelRef.current.send({
+        type: "broadcast",
+        event: "typing",
+        payload: { match_id: activeMatchId, sender_id: player.id, is_typing: isTyping },
+      });
     }
 
     if (isTyping) {
@@ -627,8 +647,16 @@ export default function PartnerScenePage() {
           event: "typing",
           payload: { match_id: activeMatchId, sender_id: player.id, is_typing: false },
         });
-      }, 2200);
+        typingTimeoutRef.current = null;
+      }, 4200);
     }
+
+    return () => {
+      if (typingTimeoutRef.current) {
+        window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+    };
   }, [activeMatchId, activeTab, chatDraft, player]);
 
   useEffect(() => {
