@@ -143,6 +143,11 @@ const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
 const chatImageUrl = (body: string) => body.replace(chatImagePrefix, "");
 const isChatAudioMessage = (body: string) => body.startsWith(chatAudioPrefix);
 const chatAudioUrl = (body: string) => body.replace(chatAudioPrefix, "");
+const chatNotificationBody = (body: string) => {
+  if (isChatImageMessage(body)) return "Sent you a photo.";
+  if (isChatAudioMessage(body)) return "Sent you a voice note.";
+  return body || "Open the inbox to reply.";
+};
 const formatLastSeen = (value?: string | null) => {
   if (!value) return "Last seen recently";
 
@@ -223,6 +228,7 @@ export default function PartnerScenePage() {
   const typingTimeoutRef = useRef<number | null>(null);
   const incomingTypingTimeoutRef = useRef<number | null>(null);
   const lastTypingSentRef = useRef("");
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const callChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -453,6 +459,24 @@ export default function PartnerScenePage() {
     const matchIds = matches.map((match) => match.id);
     const presenceIds = Array.from(new Set([player.id, ...matches.map((match) => (match.user_a === player.id ? match.user_b : match.user_a))]));
 
+    const notifyIncomingMessage = (row: MessageRow) => {
+      if (row.sender_id === player.id || notifiedMessageIdsRef.current.has(row.id)) return;
+      if (typeof Notification === "undefined") return;
+      if (Notification.permission !== "granted") return;
+      if (document.visibilityState === "visible" && activeTab === "chat" && activeMatchId === row.match_id) return;
+
+      const match = matches.find((entry) => entry.id === row.match_id);
+      const senderProfile = match ? profileMap[match.user_a === player.id ? match.user_b : match.user_a] : null;
+      notifiedMessageIdsRef.current.add(row.id);
+
+      void showSystemNotification({
+        title: senderProfile ? `${senderProfile.display_name} sent a message` : "New message",
+        body: chatNotificationBody(row.body),
+        url: `/game/partner?tab=chat`,
+        tag: `dating-message-${player.id}-${row.id}`,
+      });
+    };
+
     const mergeMessage = (row: MessageRow) => {
       setMessages((current) => mergeMessagesPreservingReads(current, [row]));
     };
@@ -489,6 +513,7 @@ export default function PartnerScenePage() {
         const row = payload.new as MessageRow | null;
         if (!row?.match_id || !matchIds.includes(row.match_id)) return;
         mergeMessage(row);
+        if (payload.eventType === "INSERT") notifyIncomingMessage(row);
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "players" }, (payload) => {
         const row = payload.new as { id?: string; is_online?: boolean | null; updated_at?: string | null };
@@ -504,7 +529,7 @@ export default function PartnerScenePage() {
       window.clearInterval(interval);
       void supabase.removeChannel(channel);
     };
-  }, [activeTab, matches, player]);
+  }, [activeMatchId, activeTab, matches, player, profileMap]);
 
   useEffect(() => {
     if (!player) return;
@@ -1025,6 +1050,7 @@ export default function PartnerScenePage() {
       likedMeCount: likedMeIds.length,
       matchCount: matches.length,
       messageCount: messages.length,
+      lastMessageId: messages[messages.length - 1]?.id || "",
       lastMessageMatchId: messages[messages.length - 1]?.match_id || "",
     };
 
@@ -1062,12 +1088,13 @@ export default function PartnerScenePage() {
           const latestMessage = messages[messages.length - 1];
           const latestMatch = latestMessage ? matches.find((match) => match.id === latestMessage.match_id) : null;
           const latestProfile = latestMatch ? profileMap[latestMatch.user_a === player.id ? latestMatch.user_b : latestMatch.user_a] : null;
-          if (latestMessage?.sender_id !== player.id) {
+          if (latestMessage?.sender_id !== player.id && latestMessage && !notifiedMessageIdsRef.current.has(latestMessage.id)) {
+            notifiedMessageIdsRef.current.add(latestMessage.id);
             void showSystemNotification({
               title: latestProfile ? `${latestProfile.display_name} sent a message` : "New message",
-              body: latestMessage?.body || "Open the inbox to reply.",
+              body: chatNotificationBody(latestMessage.body),
               url: "/game/partner?tab=chat",
-              tag: `dating-message-${player.id}`,
+              tag: `dating-message-${player.id}-${latestMessage.id}`,
             });
           }
         }
