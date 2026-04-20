@@ -1310,7 +1310,7 @@ export default function PartnerScenePage() {
       className={`min-h-screen transition-colors ${
         activeMatch
           ? "overflow-hidden bg-[#071323] text-white"
-          : `px-4 pb-32 pt-24 ${
+          : `px-3 pb-24 pt-16 sm:px-4 sm:pb-32 sm:pt-24 ${
               isLightMode
                 ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
                 : "bg-[linear-gradient(180deg,#17181d_0%,#111318_28%,#090a0f_100%)] text-white"
@@ -1346,9 +1346,9 @@ export default function PartnerScenePage() {
         {error ? <p className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
 
         {activeTab === "swipe" ? (
-          <section className="rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur">
+          <section className="rounded-[1.6rem] border border-white/10 bg-black/35 p-3 shadow-xl backdrop-blur">
             <p className="text-sm uppercase tracking-[0.3em] text-white/50">Encounters</p>
-            <h2 className="mt-2 text-3xl font-bold">Swipe</h2>
+            <h2 className="mt-1 text-3xl font-bold">Swipe</h2>
             {currentProfile ? <SwipeCard profile={currentProfile} saving={saving} onPass={passProfile} onLike={() => void likeProfile()} onSuperLike={() => void likeProfile(true)} /> : <EmptySwipeState />}
           </section>
         ) : null}
@@ -1579,24 +1579,61 @@ function SwipeCard({
   onLike: () => void;
   onSuperLike: () => void;
 }) {
+  const [dragStartX, setDragStartX] = useState<number | null>(null);
+  const [dragOffsetX, setDragOffsetX] = useState(0);
+  const swipeThreshold = 78;
+
+  const finishSwipe = () => {
+    if (!saving && dragOffsetX > swipeThreshold) {
+      onLike();
+    } else if (!saving && dragOffsetX < -swipeThreshold) {
+      onPass();
+    }
+
+    setDragStartX(null);
+    setDragOffsetX(0);
+  };
+
   return (
-    <div className="mt-5 rounded-[2rem] border border-white/10 bg-[#181a21] p-3 shadow-2xl">
-      <div className="overflow-hidden rounded-[1.7rem] bg-black">
-        <div className="aspect-[3/4] bg-black/40">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-center text-white/55"><div><p className="text-sm uppercase tracking-[0.3em]">No Photo</p><p className="mt-3 text-lg">This user still needs to upload a dating photo.</p></div></div>}</div>
+    <div
+      className="mt-3 rounded-[1.7rem] border border-white/10 bg-[#181a21] p-3 shadow-2xl touch-pan-y"
+      style={{
+        transform: `translateX(${dragOffsetX}px) rotate(${dragOffsetX / 26}deg)`,
+        transition: dragStartX === null ? "transform 180ms ease" : "none",
+      }}
+      onPointerDown={(event) => {
+        if (saving) return;
+        setDragStartX(event.clientX);
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        if (dragStartX === null || saving) return;
+        setDragOffsetX(Math.max(-130, Math.min(130, event.clientX - dragStartX)));
+      }}
+      onPointerUp={finishSwipe}
+      onPointerCancel={() => {
+        setDragStartX(null);
+        setDragOffsetX(0);
+      }}
+    >
+      <div className="relative overflow-hidden rounded-[1.35rem] bg-black">
+        {dragOffsetX > 24 ? <div className="absolute left-4 top-4 z-10 rotate-[-10deg] rounded-xl border-2 border-emerald-300 px-3 py-2 text-sm font-black uppercase text-emerald-200">Like</div> : null}
+        {dragOffsetX < -24 ? <div className="absolute right-4 top-4 z-10 rotate-[10deg] rounded-xl border-2 border-rose-300 px-3 py-2 text-sm font-black uppercase text-rose-200">Next</div> : null}
+        <div className="flex h-[min(38vh,18rem)] min-h-56 bg-black/40">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover object-center" draggable={false} /> : <div className="flex h-full w-full items-center justify-center text-center text-white/55"><div><p className="text-sm uppercase tracking-[0.3em]">No Photo</p><p className="mt-3 text-lg">This user still needs to upload a dating photo.</p></div></div>}</div>
       </div>
-      <div className="mt-4 flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-3xl font-black">{profile.display_name}, {profile.age}</h3>
-            {isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-xs font-bold text-slate-950">Verified</span> : null}
+      <div className="mt-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h3 className="max-w-full break-words text-[clamp(1.45rem,7vw,2rem)] font-black leading-none">{profile.display_name}, {profile.age}</h3>
+            {isProfileVerified(profile) ? <span className="shrink-0 rounded-full bg-sky-400 px-2 py-1 text-[11px] font-bold text-slate-950">Verified</span> : null}
           </div>
-          <p className="mt-2 text-sm text-white/70">{profile.location_label || profile.city}</p>
+          <p className="mt-1 truncate text-sm text-white/70">{profile.location_label || profile.city}</p>
         </div>
         <button className="rounded-full bg-white/10 px-3 py-2 text-xl">⋯</button>
       </div>
-      <p className="mt-4 text-sm leading-7 text-white/80">{profile.bio}</p>
-      <div className="mt-4 flex flex-wrap gap-2">{(profile.interests || []).map((interest) => <span key={interest} className="rounded-full bg-white/10 px-3 py-2 text-xs text-white/75">{interest}</span>)}</div>
-      <div className="mt-6 flex items-center justify-center gap-4">
+      <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/80">{profile.bio}</p>
+      <div className="mt-3 flex max-h-9 flex-wrap gap-2 overflow-hidden">{(profile.interests || []).slice(0, 3).map((interest) => <span key={interest} className="rounded-full bg-white/10 px-3 py-2 text-xs text-white/75">{interest}</span>)}</div>
+      <div className="mt-4 flex items-center justify-center gap-4 pb-1">
         <button onClick={onPass} className="h-16 w-16 rounded-full bg-white text-4xl font-black text-stone-950 shadow-xl">×</button>
         <button onClick={onSuperLike} disabled={saving} className="h-16 w-16 rounded-full bg-white text-2xl text-stone-950 shadow-xl disabled:opacity-60">★</button>
         <button onClick={onLike} disabled={saving} className="h-16 w-16 rounded-full bg-white text-3xl text-stone-950 shadow-xl disabled:opacity-60">♥</button>
