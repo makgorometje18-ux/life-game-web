@@ -43,6 +43,7 @@ type DatingProfile = {
   photo_url: string | null;
   gallery_urls: string[] | null;
   gender: string | null;
+  preferred_gender: string | null;
   relationship_goal: string | null;
   location_label: string | null;
   contact_verified: boolean;
@@ -105,6 +106,8 @@ const rtcConfig: RTCConfiguration = { iceServers: [{ urls: "stun:stun.l.google.c
 const voiceAudioConstraints: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 const isProfileVerified = (profile?: Pick<DatingProfile, "contact_verified" | "profile_verified" | "is_photo_verified" | "selfie_url">) =>
   Boolean(profile?.contact_verified || profile?.profile_verified || (profile?.is_photo_verified && profile.selfie_url));
+const matchesPreferredGender = (profile: DatingProfile, preferredGender?: string | null) =>
+  !preferredGender || preferredGender === "All" || profile.gender === preferredGender;
 const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
 const chatImageUrl = (body: string) => body.replace(chatImagePrefix, "");
 const isChatAudioMessage = (body: string) => body.startsWith(chatAudioPrefix);
@@ -173,7 +176,6 @@ export default function PartnerScenePage() {
   const [typingByMatch, setTypingByMatch] = useState<Record<string, boolean>>({});
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [likedMeIds, setLikedMeIds] = useState<string[]>([]);
-  const [passedIds, setPassedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -284,8 +286,11 @@ export default function PartnerScenePage() {
 
       const typedMatches = (matchRows || []) as MatchRow[];
       const partnerIds = typedMatches.map((row) => (row.user_a === user.id ? row.user_b : row.user_a));
-      const visibleProfiles = ((allProfiles || []) as DatingProfile[]).filter((profile) => profile.is_active ?? true);
-      const mergedProfiles = [...visibleProfiles, ownProfile as DatingProfile];
+      const ownDatingProfile = ownProfile as DatingProfile;
+      const visibleProfiles = ((allProfiles || []) as DatingProfile[]).filter(
+        (profile) => (profile.is_active ?? true) && matchesPreferredGender(profile, ownDatingProfile.preferred_gender)
+      );
+      const mergedProfiles = [...visibleProfiles, ownDatingProfile];
       const missingIds = partnerIds.filter((id) => !mergedProfiles.some((profile) => profile.user_id === id));
       let matchedProfiles: DatingProfile[] = [];
 
@@ -338,7 +343,7 @@ export default function PartnerScenePage() {
       const nextLikedIds = (likesMade || []).map((row) => row.liked_user_id);
       setPlayer(playerData as PlayerRecord);
       setProgress(extra);
-      setProfiles(((allProfiles || []) as DatingProfile[]).filter((profile) => !nextLikedIds.includes(profile.user_id)));
+      setProfiles(visibleProfiles);
       setProfileMap(nextMap);
       setPresenceMap(nextPresenceMap);
       setMatches(typedMatches);
@@ -623,9 +628,9 @@ export default function PartnerScenePage() {
   }, [matches.length, player]);
 
   const currentProfile = useMemo(() => {
-    const available = profiles.filter((profile) => !passedIds.includes(profile.user_id));
-    return available[stackIndex] ?? null;
-  }, [passedIds, profiles, stackIndex]);
+    if (!profiles.length) return null;
+    return profiles[stackIndex % profiles.length] ?? null;
+  }, [profiles, stackIndex]);
 
   const canUseDating = useMemo(() => {
     if (!player) return false;
@@ -1013,12 +1018,11 @@ export default function PartnerScenePage() {
     window.localStorage.setItem(summaryKey(player.id), JSON.stringify(summary));
   }, [likedMeIds.length, matches, messages, player, profileMap]);
 
-  const advanceStack = () => setStackIndex((value) => value + 1);
+  const advanceStack = () => setStackIndex((value) => (profiles.length ? (value + 1) % profiles.length : 0));
 
   const passProfile = () => {
     if (!currentProfile) return;
-    setPassedIds((current) => [...current, currentProfile.user_id]);
-    setStatus(`You passed on ${currentProfile.display_name}. Keep looking for the right person.`);
+    setStatus(`Showing the next account after ${currentProfile.display_name}.`);
     advanceStack();
   };
 

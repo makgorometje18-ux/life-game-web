@@ -10,6 +10,7 @@ create table if not exists public.dating_profiles (
   photo_url text,
   gallery_urls text[] not null default '{}',
   gender text,
+  preferred_gender text not null default 'All',
   relationship_goal text,
   preferred_contact_method text,
   contact_value text,
@@ -30,6 +31,7 @@ create table if not exists public.dating_profiles (
 
 alter table public.dating_profiles add column if not exists gallery_urls text[] not null default '{}';
 alter table public.dating_profiles add column if not exists gender text;
+alter table public.dating_profiles add column if not exists preferred_gender text not null default 'All';
 alter table public.dating_profiles add column if not exists relationship_goal text;
 alter table public.dating_profiles add column if not exists preferred_contact_method text;
 alter table public.dating_profiles add column if not exists contact_value text;

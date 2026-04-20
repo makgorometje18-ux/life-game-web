@@ -50,6 +50,7 @@ type ExistingProfile = {
   photo_url: string | null;
   gallery_urls: string[] | null;
   gender: string | null;
+  preferred_gender: string | null;
   relationship_goal: string | null;
   preferred_contact_method: string | null;
   contact_value: string | null;
@@ -345,6 +346,7 @@ export default function PartnerSetupPage() {
   const [age, setAge] = useState("18");
   const [city, setCity] = useState("");
   const [gender, setGender] = useState("Man");
+  const [preferredGender, setPreferredGender] = useState("All");
   const [relationshipGoal, setRelationshipGoal] = useState("Long-term relationship");
   const [bio, setBio] = useState("");
   const [interests, setInterests] = useState("");
@@ -488,6 +490,7 @@ export default function PartnerSetupPage() {
         setAge(String(typedProfile?.age || playerData.age || 18));
         setCity(typedProfile?.city || playerData.country || "");
         setGender(typedProfile?.gender || "Man");
+        setPreferredGender(typedProfile?.preferred_gender || "All");
         setRelationshipGoal(typedProfile?.relationship_goal || "Long-term relationship");
         setBio(typedProfile?.bio || "");
         setInterests((typedProfile?.interests || []).join(", "));
@@ -1163,6 +1166,7 @@ export default function PartnerSetupPage() {
         selfie_url: nextSelfieUrl || null,
         face_match_score: nextFaceMatchScore,
         gender,
+        preferred_gender: preferredGender,
         relationship_goal: relationshipGoal,
         preferred_contact_method: method,
         contact_value: method === "phone" ? normalizePhoneNumber(contactValue, phoneDialCode) : normalizeEmailAddress(contactValue),
@@ -1452,6 +1456,13 @@ export default function PartnerSetupPage() {
                     <option>Non-binary</option>
                     <option>Prefer not to say</option>
                   </select>
+                  <select value={preferredGender} onChange={(event) => setPreferredGender(event.target.value)} className="rounded-2xl bg-white px-4 py-3 text-black outline-none">
+                    <option value="All">Show me everyone</option>
+                    <option value="Man">Show me men</option>
+                    <option value="Woman">Show me women</option>
+                  </select>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
                   <select value={relationshipGoal} onChange={(event) => setRelationshipGoal(event.target.value)} className="rounded-2xl bg-white px-4 py-3 text-black outline-none">
                     {defaultGoalCards.map((goal) => (
                       <option key={goal.title}>{goal.title}</option>
