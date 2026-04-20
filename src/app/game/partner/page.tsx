@@ -1,6 +1,6 @@
 "use client";
 
-import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GameLogo } from "@/components/game-logo";
 import { requestNotificationPermission, showSystemNotification } from "@/lib/browser-notifications";
 import { supabase } from "@/lib/supabase";
@@ -1793,12 +1793,23 @@ function ChatPanel({
   const [openImageUrl, setOpenImageUrl] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const latestMessageKey = activeMessages.map((message) => `${message.id}:${message.read_at || ""}`).join("|");
 
+  const jumpToLatestMessage = () => {
+    const scroller = messagesScrollerRef.current;
+    if (scroller) {
+      scroller.scrollTop = scroller.scrollHeight;
+      return;
+    }
+
+    messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  };
+
   const scrollToLatestMessage = () => {
     requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+      jumpToLatestMessage();
     });
   };
 
@@ -1839,8 +1850,8 @@ function ChatPanel({
     };
   }, []);
 
-  useEffect(() => {
-    scrollToLatestMessage();
+  useLayoutEffect(() => {
+    jumpToLatestMessage();
   }, [activeMatchProfile.user_id]);
 
   useEffect(() => {
@@ -1883,7 +1894,7 @@ function ChatPanel({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain scroll-smooth bg-[#071323] px-4 py-5">
+      <div ref={messagesScrollerRef} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain bg-[#071323] px-4 py-5">
         <p className="text-center text-sm font-bold text-white/45">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
