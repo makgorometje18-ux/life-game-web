@@ -1022,6 +1022,7 @@ export default function PartnerScenePage() {
 
   const passProfile = () => {
     if (!currentProfile) return;
+    setError("");
     setStatus(`Showing the next account after ${currentProfile.display_name}.`);
     advanceStack();
   };
@@ -1037,8 +1038,14 @@ export default function PartnerScenePage() {
         liked_user_id: currentProfile.user_id,
       });
 
-      if (likeError && !likeError.message.toLowerCase().includes("duplicate")) {
-        setError(schemaHelp);
+      const alreadyLiked =
+        likeError?.code === "23505" ||
+        Boolean(likeError?.message.toLowerCase().includes("duplicate") || likeError?.message.toLowerCase().includes("unique"));
+
+      if (likeError && !alreadyLiked) {
+        console.warn("Dating like could not be saved", likeError);
+        setStatus(`Could not save the like for ${currentProfile.display_name}, showing the next account.`);
+        advanceStack();
         setSaving(false);
         return;
       }
@@ -1051,7 +1058,9 @@ export default function PartnerScenePage() {
         .maybeSingle();
 
       if (mutualError) {
-        setError(schemaHelp);
+        console.warn("Could not check mutual like", mutualError);
+        setStatus(`You liked ${currentProfile.display_name}. Showing the next account.`);
+        advanceStack();
         setSaving(false);
         return;
       }
@@ -1067,7 +1076,9 @@ export default function PartnerScenePage() {
           .single();
 
         if (matchInsertError) {
-          setError(schemaHelp);
+          console.warn("Could not create dating match", matchInsertError);
+          setStatus(`You liked ${currentProfile.display_name}. Showing the next account.`);
+          advanceStack();
           setSaving(false);
           return;
         }
@@ -1584,9 +1595,7 @@ function SwipeCard({
   const swipeThreshold = 78;
 
   const finishSwipe = () => {
-    if (!saving && dragOffsetX > swipeThreshold) {
-      onLike();
-    } else if (!saving && dragOffsetX < -swipeThreshold) {
+    if (!saving && Math.abs(dragOffsetX) > swipeThreshold) {
       onPass();
     }
 
@@ -1617,7 +1626,7 @@ function SwipeCard({
       }}
     >
       <div className="relative overflow-hidden rounded-[1.35rem] bg-black">
-        {dragOffsetX > 24 ? <div className="absolute left-4 top-4 z-10 rotate-[-10deg] rounded-xl border-2 border-emerald-300 px-3 py-2 text-sm font-black uppercase text-emerald-200">Like</div> : null}
+        {dragOffsetX > 24 ? <div className="absolute left-4 top-4 z-10 rotate-[-10deg] rounded-xl border-2 border-emerald-300 px-3 py-2 text-sm font-black uppercase text-emerald-200">Next</div> : null}
         {dragOffsetX < -24 ? <div className="absolute right-4 top-4 z-10 rotate-[10deg] rounded-xl border-2 border-rose-300 px-3 py-2 text-sm font-black uppercase text-rose-200">Next</div> : null}
         <div className="flex h-[min(38vh,18rem)] min-h-56 bg-black/40">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover object-center" draggable={false} /> : <div className="flex h-full w-full items-center justify-center text-center text-white/55"><div><p className="text-sm uppercase tracking-[0.3em]">No Photo</p><p className="mt-3 text-lg">This user still needs to upload a dating photo.</p></div></div>}</div>
       </div>
