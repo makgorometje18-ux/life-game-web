@@ -1796,9 +1796,9 @@ function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const latestMessageKey = activeMessages.map((message) => `${message.id}:${message.read_at || ""}`).join("|");
 
-  const scrollToLatestMessage = (behavior: ScrollBehavior = "smooth") => {
+  const scrollToLatestMessage = () => {
     requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
     });
   };
 
@@ -1840,7 +1840,7 @@ function ChatPanel({
   }, []);
 
   useEffect(() => {
-    scrollToLatestMessage("auto");
+    scrollToLatestMessage();
   }, [activeMatchProfile.user_id]);
 
   useEffect(() => {
@@ -1883,7 +1883,7 @@ function ChatPanel({
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain scroll-smooth bg-[#071323] px-4 py-5">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain bg-[#071323] px-4 py-5">
         <div className="chat-logo-pattern pointer-events-none absolute inset-0 z-0" aria-hidden="true" />
         <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.08),transparent_28%),linear-gradient(180deg,rgba(7,19,35,0.58),rgba(7,19,35,0.82))]" aria-hidden="true" />
         <p className="relative z-10 text-center text-sm font-bold text-white/45">{dividerLabel}</p>
@@ -1901,11 +1901,11 @@ function ChatPanel({
                       className="overflow-hidden rounded-2xl border border-white/10 bg-white/10 text-left shadow-sm"
                       aria-label="Open chat picture"
                     >
-                      <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" onLoad={() => scrollToLatestMessage("auto")} />
+                      <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" onLoad={scrollToLatestMessage} />
                     </button>
                   ) : isChatAudioMessage(message.body) ? (
                     <div className={`rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600" : "bg-[#152238]"}`}>
-                      <audio controls src={chatAudioUrl(message.body)} className="h-10 max-w-full" onLoadedMetadata={() => scrollToLatestMessage("auto")} />
+                      <audio controls src={chatAudioUrl(message.body)} className="h-10 max-w-full" onLoadedMetadata={scrollToLatestMessage} />
                     </div>
                   ) : (
                     <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
