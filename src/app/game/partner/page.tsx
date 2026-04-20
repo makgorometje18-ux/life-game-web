@@ -1792,6 +1792,14 @@ function ChatPanel({
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const latestMessageKey = activeMessages.map((message) => `${message.id}:${message.read_at || ""}`).join("|");
+
+  const scrollToLatestMessage = (behavior: ScrollBehavior = "smooth") => {
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    });
+  };
 
   const toggleVoiceRecording = async () => {
     if (isRecordingVoice) {
@@ -1830,6 +1838,14 @@ function ChatPanel({
     };
   }, []);
 
+  useEffect(() => {
+    scrollToLatestMessage("auto");
+  }, [activeMatchProfile.user_id]);
+
+  useEffect(() => {
+    scrollToLatestMessage();
+  }, [latestMessageKey, isTyping]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#071323] text-white">
       <div className="shrink-0 flex items-center gap-3 border-b border-white/10 bg-[#0b1728] px-4 py-3 shadow-sm">
@@ -1866,7 +1882,7 @@ function ChatPanel({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain bg-[#071323] px-4 py-5">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain scroll-smooth bg-[#071323] px-4 py-5">
         <p className="text-center text-sm font-bold text-white/45">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
@@ -1877,11 +1893,11 @@ function ChatPanel({
                 <div className={`max-w-[78%] ${isOwnMessage ? "items-end" : "items-start"} flex flex-col`}>
                   {isChatImageMessage(message.body) ? (
                     <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/10 shadow-sm">
-                      <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" />
+                      <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" onLoad={() => scrollToLatestMessage("auto")} />
                     </div>
                   ) : isChatAudioMessage(message.body) ? (
                     <div className={`rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600" : "bg-[#152238]"}`}>
-                      <audio controls src={chatAudioUrl(message.body)} className="h-10 max-w-full" />
+                      <audio controls src={chatAudioUrl(message.body)} className="h-10 max-w-full" onLoadedMetadata={() => scrollToLatestMessage("auto")} />
                     </div>
                   ) : (
                     <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
@@ -1902,6 +1918,7 @@ function ChatPanel({
           </div>
         )}
         {isTyping ? <p className="text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
+        <div ref={messagesEndRef} className="h-1 shrink-0" aria-hidden="true" />
       </div>
 
       <div className="shrink-0 border-t border-white/10 bg-[#0b1728] px-3 py-3">
