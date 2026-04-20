@@ -144,6 +144,24 @@ const formatSentAt = (value?: string | null) => {
   });
 };
 
+const sortMessagesByCreatedAt = (rows: MessageRow[]) =>
+  [...rows].sort((first, second) => new Date(first.created_at).getTime() - new Date(second.created_at).getTime());
+
+const mergeMessagesPreservingReads = (current: MessageRow[], incoming: MessageRow[]) => {
+  const nextMap = new Map(current.map((message) => [message.id, message]));
+
+  incoming.forEach((message) => {
+    const existing = nextMap.get(message.id);
+    nextMap.set(message.id, {
+      ...existing,
+      ...message,
+      read_at: message.read_at || existing?.read_at || null,
+    });
+  });
+
+  return sortMessagesByCreatedAt(Array.from(nextMap.values()));
+};
+
 export default function PartnerScenePage() {
   const [player, setPlayer] = useState<PlayerRecord | null>(null);
   const [progress, setProgress] = useState<Progress>(baseProgress);
@@ -399,13 +417,7 @@ export default function PartnerScenePage() {
     const presenceIds = Array.from(new Set([player.id, ...matches.map((match) => (match.user_a === player.id ? match.user_b : match.user_a))]));
 
     const mergeMessage = (row: MessageRow) => {
-      setMessages((current) => {
-        const next = current.some((message) => message.id === row.id)
-          ? current.map((message) => (message.id === row.id ? { ...message, ...row } : message))
-          : [...current, row];
-
-        return next.sort((first, second) => new Date(first.created_at).getTime() - new Date(second.created_at).getTime());
-      });
+      setMessages((current) => mergeMessagesPreservingReads(current, [row]));
     };
 
     const refreshChatState = async () => {
@@ -430,7 +442,7 @@ export default function PartnerScenePage() {
           .in("match_id", matchIds)
           .order("created_at", { ascending: true });
 
-        if (fetchedMessages) setMessages(fetchedMessages as MessageRow[]);
+        if (fetchedMessages) setMessages((current) => mergeMessagesPreservingReads(current, fetchedMessages as MessageRow[]));
       }
     };
 
@@ -518,7 +530,18 @@ export default function PartnerScenePage() {
       .update({ read_at: readAt })
       .eq("match_id", activeMatchId)
       .neq("sender_id", player.id)
-      .is("read_at", null);
+      .is("read_at", null)
+      .select("id, match_id, sender_id, body, created_at, read_at")
+      .then(({ data, error: readError }) => {
+        if (readError) {
+          console.error("Could not mark active chat as read", readError);
+          return;
+        }
+
+        if (data?.length) {
+          setMessages((current) => mergeMessagesPreservingReads(current, data as MessageRow[]));
+        }
+      });
   }, [activeMatchId, activeTab, messages, player]);
 
   useEffect(() => {
@@ -630,21 +653,33 @@ export default function PartnerScenePage() {
     if (!player) return;
 
     const hasUnread = messages.some((message) => message.match_id === matchId && message.sender_id !== player.id && !message.read_at);
-    if (!hasUnread) return;
-
     const readAt = new Date().toISOString();
-    setMessages((current) =>
-      current.map((message) =>
-        message.match_id === matchId && message.sender_id !== player.id && !message.read_at ? { ...message, read_at: readAt } : message
-      )
-    );
+
+    if (hasUnread) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.match_id === matchId && message.sender_id !== player.id && !message.read_at ? { ...message, read_at: readAt } : message
+        )
+      );
+    }
 
     void supabase
       .from("dating_messages")
       .update({ read_at: readAt })
       .eq("match_id", matchId)
       .neq("sender_id", player.id)
-      .is("read_at", null);
+      .is("read_at", null)
+      .select("id, match_id, sender_id, body, created_at, read_at")
+      .then(({ data, error: readError }) => {
+        if (readError) {
+          console.error("Could not mark match as read", readError);
+          return;
+        }
+
+        if (data?.length) {
+          setMessages((current) => mergeMessagesPreservingReads(current, data as MessageRow[]));
+        }
+      });
   };
 
   const stopRingtone = () => {
