@@ -1883,14 +1883,16 @@ function ChatPanel({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain scroll-smooth bg-[#071323] px-4 py-5">
-        <p className="text-center text-sm font-bold text-white/45">{dividerLabel}</p>
+      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain scroll-smooth bg-[#071323] px-4 py-5">
+        <div className="chat-logo-pattern pointer-events-none absolute inset-0 z-0" aria-hidden="true" />
+        <div className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.08),transparent_28%),linear-gradient(180deg,rgba(7,19,35,0.58),rgba(7,19,35,0.82))]" aria-hidden="true" />
+        <p className="relative z-10 text-center text-sm font-bold text-white/45">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
             const isOwnMessage = message.sender_id === activePlayerId;
 
             return (
-              <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+              <div key={message.id} className={`relative z-10 flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[78%] ${isOwnMessage ? "items-end" : "items-start"} flex flex-col`}>
                   {isChatImageMessage(message.body) ? (
                     <button
@@ -1919,12 +1921,12 @@ function ChatPanel({
             );
           })
         ) : (
-          <div className="flex flex-1 items-center justify-center rounded-[1.5rem] bg-white/5 p-5 text-center text-sm leading-6 text-white/55">
+          <div className="relative z-10 flex flex-1 items-center justify-center rounded-[1.5rem] bg-white/5 p-5 text-center text-sm leading-6 text-white/55">
             No messages yet. Start the conversation.
           </div>
         )}
-        {isTyping ? <p className="text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
-        <div ref={messagesEndRef} className="h-1 shrink-0" aria-hidden="true" />
+        {isTyping ? <p className="relative z-10 text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
+        <div ref={messagesEndRef} className="relative z-10 h-1 shrink-0" aria-hidden="true" />
       </div>
 
       <div className="shrink-0 border-t border-white/10 bg-[#0b1728] px-3 py-3">

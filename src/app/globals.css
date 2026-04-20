@@ -143,6 +143,15 @@ select {
   transform: translateZ(0);
 }
 
+.chat-logo-pattern {
+  background-image: url("/game-logo.png");
+  background-repeat: repeat;
+  background-size: 86px 86px;
+  background-position: 18px 22px;
+  opacity: 0.045;
+  filter: grayscale(0.2) saturate(1.15);
+}
+
 @media (min-width: 900px) and (min-aspect-ratio: 4 / 3) {
   .game-background-photo::before {
     inset: auto;
