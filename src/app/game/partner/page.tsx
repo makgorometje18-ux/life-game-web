@@ -1387,7 +1387,7 @@ export default function PartnerScenePage() {
         ) : null}
 
         {activeTab === "chat" ? (
-          <section className={activeMatch ? "fixed inset-0 z-[90] overflow-hidden bg-[#071323] text-white" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
+          <section className={activeMatch ? "fixed inset-0 z-[90] h-dvh overflow-hidden bg-[#071323] text-white" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
             {!activeMatch ? (
               <>
                 <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
@@ -1848,7 +1848,7 @@ function ChatPanel({
   }, [latestMessageKey, isTyping]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#071323] text-white">
+    <div className="flex h-dvh min-h-0 flex-col bg-[#071323] text-white">
       <div className="shrink-0 flex items-center gap-3 border-b border-white/10 bg-[#0b1728] px-4 py-3 shadow-sm">
         <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-black text-white transition hover:bg-white/15" aria-label="Back to chats">
           &lt;
@@ -1883,15 +1883,14 @@ function ChatPanel({
         </div>
       </div>
 
-      <div className="chat-logo-pattern relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5">
-        <div className="chat-logo-pattern-content flex min-h-full flex-col gap-4">
-        <p className="relative z-10 text-center text-sm font-bold text-white/45">{dividerLabel}</p>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain scroll-smooth bg-[#071323] px-4 py-5">
+        <p className="text-center text-sm font-bold text-white/45">{dividerLabel}</p>
         {activeMessages.length ? (
           activeMessages.map((message) => {
             const isOwnMessage = message.sender_id === activePlayerId;
 
             return (
-              <div key={message.id} className={`relative z-10 flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+              <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[78%] ${isOwnMessage ? "items-end" : "items-start"} flex flex-col`}>
                   {isChatImageMessage(message.body) ? (
                     <button
@@ -1920,13 +1919,12 @@ function ChatPanel({
             );
           })
         ) : (
-          <div className="relative z-10 flex flex-1 items-center justify-center rounded-[1.5rem] bg-white/5 p-5 text-center text-sm leading-6 text-white/55">
+          <div className="flex flex-1 items-center justify-center rounded-[1.5rem] bg-white/5 p-5 text-center text-sm leading-6 text-white/55">
             No messages yet. Start the conversation.
           </div>
         )}
-        {isTyping ? <p className="relative z-10 text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
-          <div ref={messagesEndRef} className="relative z-10 h-1 shrink-0" aria-hidden="true" />
-        </div>
+        {isTyping ? <p className="text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
+        <div ref={messagesEndRef} className="h-1 shrink-0" aria-hidden="true" />
       </div>
 
       <div className="shrink-0 border-t border-white/10 bg-[#0b1728] px-3 py-3">
