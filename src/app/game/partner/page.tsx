@@ -1970,7 +1970,11 @@ function ChatPanel({
                     </div>
                   )}
                   <p className={`mt-1 flex items-center gap-1 text-[12px] font-medium text-white/45 ${isOwnMessage ? "justify-end text-right" : "justify-start text-left"}`}>
-                    {isOwnMessage ? <span className="text-sky-300">{message.read_at ? "✓✓" : "✓"}</span> : null}
+                    {isOwnMessage ? (
+                      <span className={message.read_at ? "text-emerald-400" : "text-white/45"} aria-label={message.read_at ? "Seen" : "Delivered"}>
+                        &#10003;&#10003;
+                      </span>
+                    ) : null}
                     <span>Sent {formatSentAt(message.created_at)}</span>
                   </p>
                 </div>
