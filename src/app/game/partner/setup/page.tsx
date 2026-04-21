@@ -394,6 +394,9 @@ export default function PartnerSetupPage() {
   const scanAudioContextRef = useRef<AudioContext | null>(null);
   const livenessStatusRef = useRef<LivenessStatus>("idle");
   const livenessStepIndexRef = useRef(0);
+  const premiumFieldClass =
+    "rounded-[1.35rem] border border-white/12 bg-[linear-gradient(145deg,rgba(255,255,255,0.16),rgba(255,255,255,0.07)_48%,rgba(0,0,0,0.28))] px-4 py-3 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),inset_0_-10px_20px_rgba(0,0,0,0.24),0_14px_32px_rgba(0,0,0,0.22)] outline-none transition placeholder:text-white/45 focus:border-pink-200/55 focus:bg-white/14 focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_0_0_3px_rgba(244,114,182,0.16),0_16px_36px_rgba(0,0,0,0.28)]";
+  const premiumSelectClass = `${premiumFieldClass} appearance-none`;
 
   const syncCurrentPlayer = async () => {
     const {
@@ -1316,7 +1319,7 @@ export default function PartnerSetupPage() {
 
   return (
     <main
-      className={`${step === "profile" ? "min-h-screen overflow-x-hidden px-4 pb-24 pt-24 sm:px-5" : "flex h-[100dvh] overflow-hidden px-3 pb-3 pt-20 sm:px-5 sm:pb-5"} items-center justify-center transition-colors ${
+      className={`${step === "profile" ? "min-h-screen overflow-x-hidden px-4 pb-40 pt-40 sm:px-5" : "flex h-[100dvh] overflow-hidden px-3 pb-3 pt-20 sm:px-5 sm:pb-5"} items-center justify-center transition-colors ${
         isLightMode
           ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
           : "bg-[linear-gradient(180deg,#ff5b7b_0%,#fd3974_22%,#17171b_22%,#0a0b10_100%)] text-white"
@@ -1352,11 +1355,9 @@ export default function PartnerSetupPage() {
         {isLightMode ? "Dark" : "Light"}
       </button>
 
-      {step === "welcome" ? (
-        <div className="fixed left-1/2 top-24 z-[60] flex h-20 w-20 -translate-x-1/2 items-center justify-center rounded-full bg-black/15 shadow-[0_20px_55px_rgba(0,0,0,0.28)] backdrop-blur-sm max-[380px]:top-20 max-[380px]:h-16 max-[380px]:w-16">
+      <div className="fixed left-1/2 top-24 z-[60] flex h-20 w-20 -translate-x-1/2 items-center justify-center rounded-full bg-black/15 shadow-[0_20px_55px_rgba(0,0,0,0.28)] backdrop-blur-sm max-[380px]:top-20 max-[380px]:h-16 max-[380px]:w-16">
           <GameLogo className="h-14 w-14 text-white drop-shadow-[0_10px_24px_rgba(0,0,0,0.45)] max-[380px]:h-11 max-[380px]:w-11" />
-        </div>
-      ) : null}
+      </div>
 
       <div className={`mx-auto w-full max-w-lg ${step === "profile" ? "" : "max-h-full"}`}>
         <div
@@ -1540,33 +1541,33 @@ export default function PartnerSetupPage() {
               </p>
 
               <div className="mt-8 grid w-full gap-4">
-                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Name" className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
+                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Name" className={premiumFieldClass} />
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <input value={age} onChange={(event) => setAge(event.target.value)} placeholder="Age" type="number" min={18} className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
-                  <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Where are you from?" className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
+                  <input value={age} onChange={(event) => setAge(event.target.value)} placeholder="Age" type="number" min={18} className={premiumFieldClass} />
+                  <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Where are you from?" className={premiumFieldClass} />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <select value={gender} onChange={(event) => setGender(event.target.value)} className="rounded-2xl bg-white px-4 py-3 text-black outline-none">
+                  <select value={gender} onChange={(event) => setGender(event.target.value)} className={premiumSelectClass}>
                     <option>Man</option>
                     <option>Woman</option>
                     <option>Non-binary</option>
                     <option>Prefer not to say</option>
                   </select>
-                  <select value={preferredGender} onChange={(event) => setPreferredGender(event.target.value)} className="rounded-2xl bg-white px-4 py-3 text-black outline-none">
+                  <select value={preferredGender} onChange={(event) => setPreferredGender(event.target.value)} className={premiumSelectClass}>
                     <option value="All">Show me everyone</option>
                     <option value="Man">Show me men</option>
                     <option value="Woman">Show me women</option>
                   </select>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <select value={relationshipGoal} onChange={(event) => setRelationshipGoal(event.target.value)} className="rounded-2xl bg-white px-4 py-3 text-black outline-none">
+                  <select value={relationshipGoal} onChange={(event) => setRelationshipGoal(event.target.value)} className={premiumSelectClass}>
                     {defaultGoalCards.map((goal) => (
                       <option key={goal.title}>{goal.title}</option>
                     ))}
                   </select>
                 </div>
-                <textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder="Write a bio that sounds like you." className="min-h-36 rounded-2xl bg-white px-4 py-3 text-black outline-none" />
-                <input value={interests} onChange={(event) => setInterests(event.target.value)} placeholder="Interests separated by commas" className="rounded-2xl bg-white px-4 py-3 text-black outline-none" />
+                <textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder="Write a bio that sounds like you." className={`${premiumFieldClass} min-h-36 resize-none`} />
+                <input value={interests} onChange={(event) => setInterests(event.target.value)} placeholder="Interests separated by commas" className={premiumFieldClass} />
                 <div className="w-full overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/8 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_40px_rgba(0,0,0,0.28)] sm:rounded-[2rem]">
                   <p className="text-xs uppercase tracking-[0.35em] text-white/70">Upload pictures</p>
                   <label className="group mt-4 flex min-h-36 w-full cursor-pointer flex-col gap-4 rounded-[1.5rem] border border-white/15 bg-[linear-gradient(145deg,rgba(255,255,255,0.18),rgba(255,255,255,0.05)_46%,rgba(0,0,0,0.28))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_10px_0_rgba(0,0,0,0.3),0_20px_34px_rgba(0,0,0,0.38)] transition duration-200 hover:-translate-y-1 hover:border-pink-300/50 active:translate-y-2 active:shadow-[inset_0_5px_16px_rgba(0,0,0,0.45),0_4px_0_rgba(0,0,0,0.35),0_12px_24px_rgba(0,0,0,0.34)] sm:flex-row sm:items-center sm:shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-12px_22px_rgba(0,0,0,0.32),0_16px_0_rgba(0,0,0,0.3),0_24px_38px_rgba(0,0,0,0.38)]">
