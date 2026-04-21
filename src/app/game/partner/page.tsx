@@ -75,6 +75,12 @@ type MessageRow = {
 type AppTab = "swipe" | "explore" | "likes" | "chat" | "profile";
 type CallKind = "voice" | "video";
 type CallStatus = "idle" | "calling" | "incoming" | "connecting" | "connected";
+type PartnerSafetySettings = {
+  messageNotifications: boolean;
+  quietMode: boolean;
+  scamWarnings: boolean;
+  chatSearch: boolean;
+};
 type CallState = {
   status: CallStatus;
   kind: CallKind;
@@ -101,6 +107,13 @@ const schemaHelp = "Dating tables are missing or outdated. Run the latest SQL in
 const sortPair = (first: string, second: string) => (first < second ? [first, second] : [second, first]);
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
+const safetySettingsKey = (userId: string) => `dating-safety-settings:${userId}`;
+const defaultSafetySettings: PartnerSafetySettings = {
+  messageNotifications: true,
+  quietMode: false,
+  scamWarnings: true,
+  chatSearch: true,
+};
 const chatImagePrefix = "[chat-image]";
 const chatAudioPrefix = "[chat-audio]";
 const chatEmojis = ["😀", "😂", "😍", "😘", "🥰", "😎", "😢", "😡", "🔥", "❤️", "👍", "🙏", "🎉", "💯", "👀", "✨"];
@@ -147,6 +160,23 @@ const chatNotificationBody = (body: string) => {
   if (isChatImageMessage(body)) return "Sent you a photo.";
   if (isChatAudioMessage(body)) return "Sent you a voice note.";
   return body || "Open the inbox to reply.";
+};
+const riskyMessagePatterns = [
+  /send\s+(me\s+)?(the\s+)?code/i,
+  /verification\s+code/i,
+  /password/i,
+  /bank\s*(card|account|details)?/i,
+  /crypto|bitcoin|forex|investment/i,
+  /gift\s*card/i,
+  /wire\s+transfer|western\s+union|moneygram/i,
+  /urgent(ly)?\s+send/i,
+  /whatsapp\s+code/i,
+];
+const riskyMessageWarning = (body: string) => {
+  if (isChatImageMessage(body) || isChatAudioMessage(body)) return "";
+  return riskyMessagePatterns.some((pattern) => pattern.test(body))
+    ? "Be careful: never share passwords, OTP codes, banking details, or money with someone you just met."
+    : "";
 };
 const formatLastSeen = (value?: string | null) => {
   const date = value ? new Date(value) : null;
@@ -219,6 +249,7 @@ export default function PartnerScenePage() {
   const [activeMatchId, setActiveMatchId] = useState("");
   const [chatDraft, setChatDraft] = useState("");
   const [isLightMode, setIsLightMode] = useState(false);
+  const [safetySettings, setSafetySettings] = useState<PartnerSafetySettings>(defaultSafetySettings);
   const [matchCelebrationProfile, setMatchCelebrationProfile] = useState<DatingProfile | null>(null);
   const [callState, setCallState] = useState<CallState | null>(null);
   const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
@@ -250,6 +281,16 @@ export default function PartnerScenePage() {
       type: "broadcast",
       event: "typing",
       payload: { match_id: activeMatchId, sender_id: player.id, is_typing: isTyping },
+    });
+  };
+
+  const updateSafetySettings = (changes: Partial<PartnerSafetySettings>) => {
+    setSafetySettings((current) => {
+      const next = { ...current, ...changes };
+      if (player && typeof window !== "undefined") {
+        window.localStorage.setItem(safetySettingsKey(player.id), JSON.stringify(next));
+      }
+      return next;
     });
   };
 
@@ -415,6 +456,23 @@ export default function PartnerScenePage() {
   }, []);
 
   useEffect(() => {
+    if (!player || typeof window === "undefined") return;
+
+    const stored = window.localStorage.getItem(safetySettingsKey(player.id));
+    if (!stored) {
+      setSafetySettings(defaultSafetySettings);
+      return;
+    }
+
+    try {
+      setSafetySettings({ ...defaultSafetySettings, ...JSON.parse(stored) });
+    } catch {
+      window.localStorage.removeItem(safetySettingsKey(player.id));
+      setSafetySettings(defaultSafetySettings);
+    }
+  }, [player]);
+
+  useEffect(() => {
     if (!player) return;
 
     const markOnline = () => {
@@ -474,6 +532,7 @@ export default function PartnerScenePage() {
 
     const notifyIncomingMessage = (row: MessageRow) => {
       if (row.sender_id === player.id || notifiedMessageIdsRef.current.has(row.id)) return;
+      if (!safetySettings.messageNotifications || safetySettings.quietMode) return;
       if (typeof Notification === "undefined") return;
       if (Notification.permission !== "granted") return;
       if (document.visibilityState === "visible" && activeTab === "chat" && activeMatchId === row.match_id) return;
@@ -552,7 +611,7 @@ export default function PartnerScenePage() {
       window.clearInterval(interval);
       void supabase.removeChannel(channel);
     };
-  }, [activeMatchId, activeTab, matches, player, profileMap]);
+  }, [activeMatchId, activeTab, matches, player, profileMap, safetySettings.messageNotifications, safetySettings.quietMode]);
 
   useEffect(() => {
     if (!player) return;
@@ -722,7 +781,7 @@ export default function PartnerScenePage() {
   }, [activeMatchId, activeTab, chatDraft, player]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !player || Notification.permission !== "granted") return;
+    if (typeof window === "undefined" || !player || Notification.permission !== "granted" || safetySettings.quietMode) return;
 
     let reminderTimer: number | null = null;
     const handleVisibility = () => {
@@ -1125,7 +1184,12 @@ export default function PartnerScenePage() {
           const latestMessage = messages[messages.length - 1];
           const latestMatch = latestMessage ? matches.find((match) => match.id === latestMessage.match_id) : null;
           const latestProfile = latestMatch ? profileMap[latestMatch.user_a === player.id ? latestMatch.user_b : latestMatch.user_a] : null;
-          if (latestMessage?.sender_id !== player.id && latestMessage && !notifiedMessageIdsRef.current.has(latestMessage.id)) {
+          if (
+            safetySettings.messageNotifications &&
+            latestMessage?.sender_id !== player.id &&
+            latestMessage &&
+            !notifiedMessageIdsRef.current.has(latestMessage.id)
+          ) {
             notifiedMessageIdsRef.current.add(latestMessage.id);
             void showSystemNotification({
               title: latestProfile ? `${latestProfile.display_name} sent a message` : "New message",
@@ -1141,7 +1205,7 @@ export default function PartnerScenePage() {
     }
 
     window.localStorage.setItem(summaryKey(player.id), JSON.stringify(summary));
-  }, [likedMeIds.length, matches, messages, player, profileMap]);
+  }, [likedMeIds.length, matches, messages, player, profileMap, safetySettings.messageNotifications, safetySettings.quietMode]);
 
   const advanceStack = () => setStackIndex((value) => (profiles.length ? (value + 1) % profiles.length : 0));
 
@@ -1546,6 +1610,7 @@ export default function PartnerScenePage() {
                 }}
                 presence={presenceMap[activeMatchProfile.user_id]}
                 distanceLabel={distanceForProfile(activeMatchProfile)}
+                safetySettings={safetySettings}
                 isTyping={Boolean(typingByMatch[activeMatch.id])}
                 onImageSend={(file) => void sendChatImage(file)}
                 onVoiceSend={(blob) => void sendVoiceNote(blob)}
@@ -1597,6 +1662,7 @@ export default function PartnerScenePage() {
             </div>
             <p className="mt-5 text-sm uppercase tracking-[0.3em] text-white/50">Profile</p>
             <h2 className="mt-2 text-3xl font-bold">Your dating profile</h2>
+            <SafetySettingsPanel settings={safetySettings} onChange={updateSafetySettings} />
             <OwnProfileCard profile={profileMap[player?.id || ""]} fallbackName={player?.name || "Player"} fallbackAge={player?.age || 18} fallbackCountry={player?.country || "Unknown"} />
             <button onClick={() => { window.location.href = "/game/partner/setup"; }} className="mt-5 w-full rounded-full bg-white px-5 py-4 font-semibold text-stone-950">Edit Profile</button>
           </section>
@@ -1824,6 +1890,68 @@ function StatBox({ label, value }: { label: string; value: number }) {
   return <div className="rounded-[1.7rem] border border-white/10 bg-white/5 p-4"><p className="text-sm uppercase tracking-[0.25em] text-white/50">{label}</p><p className="mt-2 text-3xl font-black">{value}</p></div>;
 }
 
+function SafetySettingsPanel({
+  settings,
+  onChange,
+}: {
+  settings: PartnerSafetySettings;
+  onChange: (changes: Partial<PartnerSafetySettings>) => void;
+}) {
+  return (
+    <div className="mt-5 rounded-[1.8rem] border border-white/10 bg-white/5 p-4">
+      <p className="text-xs uppercase tracking-[0.28em] text-white/45">Safety & attention</p>
+      <div className="mt-4 grid gap-3">
+        <SafetyToggle
+          label="Message notifications"
+          description="Show system alerts for new partner messages."
+          checked={settings.messageNotifications}
+          onChange={(value) => onChange({ messageNotifications: value })}
+        />
+        <SafetyToggle
+          label="Quiet mode"
+          description="Pause likes, matches, reminders, and message notifications."
+          checked={settings.quietMode}
+          onChange={(value) => onChange({ quietMode: value })}
+        />
+        <SafetyToggle
+          label="Scam warnings"
+          description="Warn before risky requests for codes, money, passwords, or banking details."
+          checked={settings.scamWarnings}
+          onChange={(value) => onChange({ scamWarnings: value })}
+        />
+        <SafetyToggle
+          label="Chat search"
+          description="Show a search box inside open chats."
+          checked={settings.chatSearch}
+          onChange={(value) => onChange({ chatSearch: value })}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SafetyToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-4 rounded-2xl bg-black/20 p-3">
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-white">{label}</span>
+        <span className="mt-1 block text-xs leading-5 text-white/58">{description}</span>
+      </span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-5 w-5 shrink-0 accent-sky-400" />
+    </label>
+  );
+}
+
 function MatchRowButton({ profile, distanceLabel, onOpen }: { match: MatchRow; playerId: string; profile?: DatingProfile; distanceLabel: string | null; onOpen: () => void }) {
   if (!profile) return null;
   return <button onClick={onOpen} className="flex w-full items-center gap-3 rounded-[1.7rem] border border-white/10 bg-white/5 p-3 text-left"><div className="h-20 w-16 overflow-hidden rounded-2xl bg-white/10">{profile.photo_url ? <img src={profile.photo_url} alt={profile.display_name} className="h-full w-full object-cover" /> : null}</div><div className="flex-1"><div className="flex items-center gap-2"><h3 className="text-lg font-bold">{profile.display_name}</h3>{isProfileVerified(profile) ? <span className="rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}</div><p className="mt-1 text-sm text-white/65">{distanceLabel || profile.location_label || profile.city}</p><p className="mt-1 text-sm text-white/65">{profile.relationship_goal || "Still figuring it out"}</p></div></button>;
@@ -1906,6 +2034,7 @@ function ChatPanel({
   onBack,
   presence,
   distanceLabel,
+  safetySettings,
   isTyping,
   onImageSend,
   onVoiceSend,
@@ -1923,6 +2052,7 @@ function ChatPanel({
   onBack: () => void;
   presence?: PlayerPresence;
   distanceLabel: string | null;
+  safetySettings: PartnerSafetySettings;
   isTyping: boolean;
   onImageSend: (file: File) => void;
   onVoiceSend: (blob: Blob) => void;
@@ -1934,11 +2064,17 @@ function ChatPanel({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [openImageUrl, setOpenImageUrl] = useState("");
+  const [messageSearch, setMessageSearch] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const latestMessageKey = activeMessages.map((message) => `${message.id}:${message.read_at || ""}`).join("|");
+  const normalizedSearch = messageSearch.trim().toLowerCase();
+  const shownMessages = normalizedSearch
+    ? activeMessages.filter((message) => !isChatImageMessage(message.body) && !isChatAudioMessage(message.body) && message.body.toLowerCase().includes(normalizedSearch))
+    : activeMessages;
+  const draftWarning = safetySettings.scamWarnings ? riskyMessageWarning(chatDraft) : "";
 
   const jumpToLatestMessage = () => {
     const scroller = messagesScrollerRef.current;
@@ -2037,11 +2173,23 @@ function ChatPanel({
         </div>
       </div>
 
+      {safetySettings.chatSearch ? (
+        <div className="shrink-0 border-b border-white/10 bg-[#0b1728] px-4 py-3">
+          <input
+            value={messageSearch}
+            onChange={(event) => setMessageSearch(event.target.value)}
+            placeholder="Search messages"
+            className="w-full rounded-full bg-white/10 px-4 py-2 text-sm text-white outline-none placeholder:text-white/42"
+          />
+        </div>
+      ) : null}
+
       <div ref={messagesScrollerRef} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain bg-[#071323] px-4 py-5">
         <p className="text-center text-sm font-bold text-white/45">{dividerLabel}</p>
-        {activeMessages.length ? (
-          activeMessages.map((message) => {
+        {shownMessages.length ? (
+          shownMessages.map((message) => {
             const isOwnMessage = message.sender_id === activePlayerId;
+            const messageWarning = safetySettings.scamWarnings && !isOwnMessage ? riskyMessageWarning(message.body) : "";
 
             return (
               <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
@@ -2064,6 +2212,11 @@ function ChatPanel({
                       {message.body}
                     </div>
                   )}
+                  {messageWarning ? (
+                    <p className="mt-2 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-100">
+                      {messageWarning}
+                    </p>
+                  ) : null}
                   <p className={`mt-1 flex items-center gap-1 text-[12px] font-medium text-white/45 ${isOwnMessage ? "justify-end text-right" : "justify-start text-left"}`}>
                     {isOwnMessage ? (
                       <span className={message.read_at ? "text-emerald-400" : "text-white/45"} aria-label={message.read_at ? "Seen" : "Delivered"}>
@@ -2078,7 +2231,7 @@ function ChatPanel({
           })
         ) : (
           <div className="flex flex-1 items-center justify-center rounded-[1.5rem] bg-white/5 p-5 text-center text-sm leading-6 text-white/55">
-            No messages yet. Start the conversation.
+            {activeMessages.length ? "No messages match your search." : "No messages yet. Start the conversation."}
           </div>
         )}
         {isTyping ? <p className="text-sm font-semibold text-sky-300">{activeMatchProfile.display_name} is typing...</p> : null}
@@ -2149,6 +2302,7 @@ function ChatPanel({
             {chatDraft.trim() ? "Send" : <ThumbIcon />}
           </button>
         </div>
+        {draftWarning ? <p className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-100">{draftWarning}</p> : null}
         {isRecordingVoice ? <p className="mt-2 text-center text-xs font-semibold text-rose-200">Recording... tap the mic again to send</p> : null}
         <button onClick={onCommit} disabled={saving} className="mt-3 w-full rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:opacity-60">
           Make It Official
