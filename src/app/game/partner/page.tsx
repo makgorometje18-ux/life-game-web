@@ -2321,8 +2321,14 @@ function ChatPanel({
   const [forceSearchOpen, setForceSearchOpen] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [menuNotice, setMenuNotice] = useState("");
+  const [voiceRecorderState, setVoiceRecorderState] = useState<"idle" | "recording" | "paused" | "preview">("idle");
+  const [voiceElapsedSeconds, setVoiceElapsedSeconds] = useState(0);
+  const [voicePreviewBlob, setVoicePreviewBlob] = useState<Blob | null>(null);
+  const [voicePreviewUrl, setVoicePreviewUrl] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const discardingVoiceRef = useRef(false);
+  const voiceTimerRef = useRef<number | null>(null);
   const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const latestMessageKey = activeMessages.map((message) => `${message.id}:${message.read_at || ""}`).join("|");
@@ -2357,6 +2363,39 @@ function ChatPanel({
     setShowConversationMenu(false);
   };
 
+  const voiceDurationLabel = `${Math.floor(voiceElapsedSeconds / 60)}:${String(voiceElapsedSeconds % 60).padStart(2, "0")}`;
+  const stopVoiceTimer = () => {
+    if (voiceTimerRef.current !== null) {
+      window.clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+  };
+  const startVoiceTimer = () => {
+    stopVoiceTimer();
+    voiceTimerRef.current = window.setInterval(() => {
+      setVoiceElapsedSeconds((current) => current + 1);
+    }, 1000);
+  };
+  const resetVoiceDraft = () => {
+    stopVoiceTimer();
+    discardingVoiceRef.current = true;
+    const recorder = recorderRef.current;
+    const waitingForStop = Boolean(recorder && recorder.state !== "inactive");
+    recorder?.stream.getTracks().forEach((track) => track.stop());
+    if (waitingForStop) {
+      recorder?.stop();
+    }
+    recorderRef.current = null;
+    recordedChunksRef.current = [];
+    if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+    setVoicePreviewUrl("");
+    setVoicePreviewBlob(null);
+    setVoiceElapsedSeconds(0);
+    setVoiceRecorderState("idle");
+    setIsRecordingVoice(false);
+    if (!waitingForStop) discardingVoiceRef.current = false;
+  };
+
   const jumpToLatestMessage = () => {
     const scroller = messagesScrollerRef.current;
     if (scroller) {
@@ -2373,13 +2412,9 @@ function ChatPanel({
     });
   };
 
-  const toggleVoiceRecording = async () => {
-    if (isRecordingVoice) {
-      recorderRef.current?.stop();
-      return;
-    }
-
+  const startVoiceRecording = async () => {
     try {
+      resetVoiceDraft();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: voiceAudioConstraints });
       recordedChunksRef.current = [];
       const recorder = new MediaRecorder(stream);
@@ -2390,25 +2425,68 @@ function ChatPanel({
       };
 
       recorder.onstop = () => {
+        stopVoiceTimer();
         stream.getTracks().forEach((track) => track.stop());
         setIsRecordingVoice(false);
+        if (discardingVoiceRef.current) {
+          discardingVoiceRef.current = false;
+          return;
+        }
         const voiceBlob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        if (voiceBlob.size) onVoiceSend(voiceBlob);
+        if (!voiceBlob.size) {
+          setVoiceRecorderState("idle");
+          return;
+        }
+        const previewUrl = URL.createObjectURL(voiceBlob);
+        setVoicePreviewBlob(voiceBlob);
+        setVoicePreviewUrl(previewUrl);
+        setVoiceRecorderState("preview");
       };
 
       recorder.start();
       setIsRecordingVoice(true);
+      setVoiceRecorderState("recording");
+      setVoiceElapsedSeconds(0);
+      startVoiceTimer();
     } catch (recordError) {
       console.error("Could not record voice note", recordError);
       setIsRecordingVoice(false);
+      setVoiceRecorderState("idle");
     }
+  };
+
+  const pauseVoiceRecording = () => {
+    if (recorderRef.current?.state !== "recording") return;
+    recorderRef.current.pause();
+    setVoiceRecorderState("paused");
+    stopVoiceTimer();
+  };
+
+  const resumeVoiceRecording = () => {
+    if (recorderRef.current?.state !== "paused") return;
+    recorderRef.current.resume();
+    setVoiceRecorderState("recording");
+    startVoiceTimer();
+  };
+
+  const finishVoicePreview = () => {
+    if (!recorderRef.current || recorderRef.current.state === "inactive") return;
+    recorderRef.current.stop();
+  };
+
+  const sendVoicePreview = () => {
+    if (!voicePreviewBlob) return;
+    onVoiceSend(voicePreviewBlob);
+    resetVoiceDraft();
   };
 
   useEffect(() => {
     return () => {
+      stopVoiceTimer();
       recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+      if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
     };
-  }, []);
+  }, [voicePreviewUrl]);
 
   useLayoutEffect(() => {
     jumpToLatestMessage();
@@ -2692,57 +2770,99 @@ function ChatPanel({
           </div>
         ) : null}
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => void toggleVoiceRecording()}
-            disabled={communicationBlocked}
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition ${isRecordingVoice ? "bg-rose-500 text-white" : "text-sky-300 hover:bg-white/10"}`}
-            aria-label={isRecordingVoice ? "Stop recording voice note" : "Record voice message"}
-          >
-            <MicIcon />
-          </button>
-          <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Send picture">
-            <PhotoIcon />
+        {voiceRecorderState !== "idle" ? (
+          <div className="flex items-center gap-3 rounded-full bg-white px-3 py-2 text-slate-950 shadow-[0_12px_35px_rgba(0,0,0,0.25)]">
+            <button type="button" onClick={resetVoiceDraft} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl text-slate-800 transition hover:bg-slate-100" aria-label="Delete voice note">
+              🗑
+            </button>
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${voiceRecorderState === "recording" ? "animate-pulse bg-rose-600" : "bg-slate-400"}`}></span>
+            <span className="w-11 shrink-0 text-base font-semibold tabular-nums">{voiceDurationLabel}</span>
+            <div className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-hidden px-1">
+              {voiceRecorderState === "preview" && voicePreviewUrl ? (
+                <audio controls src={voicePreviewUrl} className="h-9 w-full min-w-40" />
+              ) : (
+                Array.from({ length: 28 }).map((_, index) => (
+                  <span
+                    key={index}
+                    className={`w-1 rounded-full bg-slate-500 ${voiceRecorderState === "recording" ? "animate-pulse" : ""}`}
+                    style={{ height: `${8 + ((index * 7) % 24)}px`, animationDelay: `${index * 45}ms` }}
+                  />
+                ))
+              )}
+            </div>
+            {voiceRecorderState === "preview" ? null : (
+              <button
+                type="button"
+                onClick={voiceRecorderState === "recording" ? pauseVoiceRecording : resumeVoiceRecording}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg font-black text-rose-700 transition hover:bg-rose-50"
+                aria-label={voiceRecorderState === "recording" ? "Pause recording" : "Resume recording"}
+              >
+                {voiceRecorderState === "recording" ? "Ⅱ" : "▶"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={voiceRecorderState === "preview" ? sendVoicePreview : finishVoicePreview}
+              disabled={saving}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-xl font-black text-white transition hover:bg-emerald-400 disabled:opacity-60"
+              aria-label={voiceRecorderState === "preview" ? "Send voice note" : "Preview voice note"}
+            >
+              ▶
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void startVoiceRecording()}
+              disabled={communicationBlocked}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10 disabled:opacity-40"
+              aria-label="Record voice message"
+            >
+              <MicIcon />
+            </button>
+            <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Send picture">
+              <PhotoIcon />
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                disabled={saving || communicationBlocked}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) onImageSend(file);
+                }}
+              />
+            </label>
+            <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10 sm:flex" aria-label="Send sticker">
+              <span className="rounded-md border-2 border-current px-1 text-xs font-black">S</span>
+            </button>
+            <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-black text-sky-300 transition hover:bg-white/10 sm:flex" aria-label="Send GIF">
+              GIF
+            </button>
             <input
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              disabled={saving || communicationBlocked}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) onImageSend(file);
+              value={chatDraft}
+              onChange={(event) => setChatDraft(event.target.value)}
+              disabled={communicationBlocked}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  sendCurrentMessage();
+                }
               }}
+              placeholder={communicationBlocked ? (isBlocked ? "Unblock to message" : "Messaging unavailable") : "Aa"}
+              className="min-w-0 flex-1 rounded-full bg-white/10 px-4 py-3 text-white outline-none placeholder:text-white/45 disabled:opacity-60"
             />
-          </label>
-          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10 sm:flex" aria-label="Send sticker">
-            <span className="rounded-md border-2 border-current px-1 text-xs font-black">S</span>
-          </button>
-          <button className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-black text-sky-300 transition hover:bg-white/10 sm:flex" aria-label="Send GIF">
-            GIF
-          </button>
-          <input
-            value={chatDraft}
-            onChange={(event) => setChatDraft(event.target.value)}
-            disabled={communicationBlocked}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                sendCurrentMessage();
-              }
-            }}
-            placeholder={communicationBlocked ? (isBlocked ? "Unblock to message" : "Messaging unavailable") : "Aa"}
-            className="min-w-0 flex-1 rounded-full bg-white/10 px-4 py-3 text-white outline-none placeholder:text-white/45 disabled:opacity-60"
-          />
-          <button onClick={() => setShowEmojiPicker((current) => !current)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Choose emoji">
-            <SmileIcon />
-          </button>
-          <button onClick={chatDraft.trim() ? sendCurrentMessage : () => onQuickSend("\u{1F44D}")} disabled={saving || communicationBlocked} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
-            {chatDraft.trim() ? "Send" : <ThumbIcon />}
-          </button>
-        </div>
+            <button onClick={() => setShowEmojiPicker((current) => !current)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Choose emoji">
+              <SmileIcon />
+            </button>
+            <button onClick={chatDraft.trim() ? sendCurrentMessage : () => onQuickSend("\u{1F44D}")} disabled={saving || communicationBlocked} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
+              {chatDraft.trim() ? "Send" : <ThumbIcon />}
+            </button>
+          </div>
+        )}
         {draftWarning ? <p className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-100">{draftWarning}</p> : null}
-        {isRecordingVoice ? <p className="mt-2 text-center text-xs font-semibold text-rose-200">Recording... tap the mic again to send</p> : null}
+        {voiceRecorderState === "preview" ? <p className="mt-2 text-center text-xs font-semibold text-emerald-200">Listen first, then send or delete.</p> : null}
         <button onClick={onCommit} disabled={saving || communicationBlocked} className="mt-3 w-full rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:opacity-60">
           Make It Official
         </button>
