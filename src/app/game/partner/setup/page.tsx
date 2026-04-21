@@ -1316,7 +1316,7 @@ export default function PartnerSetupPage() {
 
   return (
     <main
-      className={`min-h-screen px-4 pb-32 pt-24 transition-colors sm:px-5 ${
+      className={`${step === "profile" ? "min-h-screen overflow-x-hidden px-4 pb-24 pt-24 sm:px-5" : "flex h-[100dvh] overflow-hidden px-3 pb-3 pt-20 sm:px-5 sm:pb-5"} items-center justify-center transition-colors ${
         isLightMode
           ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
           : "bg-[linear-gradient(180deg,#ff5b7b_0%,#fd3974_22%,#17171b_22%,#0a0b10_100%)] text-white"
@@ -1352,41 +1352,41 @@ export default function PartnerSetupPage() {
         {isLightMode ? "Dark" : "Light"}
       </button>
 
-      <div className="mx-auto max-w-lg">
+      <div className={`mx-auto w-full max-w-lg ${step === "profile" ? "" : "max-h-full"}`}>
         <div
-          className={`rounded-[2rem] p-4 shadow-2xl backdrop-blur sm:p-5 ${
+          className={`rounded-[2rem] p-4 shadow-2xl backdrop-blur sm:p-5 ${step === "profile" ? "" : "max-h-full overflow-hidden"} ${
             isLightMode ? "border border-slate-200 bg-white/82 text-slate-950" : "border border-white/10 bg-black/25 text-white"
           }`}
         >
           {step === "welcome" ? (
             <>
-              <div className="pt-10 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white/12">
-                  <GameLogo className="h-10 w-10" />
+              <div className="pt-5 text-center max-[380px]:pt-3">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white/12 max-[380px]:h-11 max-[380px]:w-11">
+                  <GameLogo className="h-9 w-9 max-[380px]:h-7 max-[380px]:w-7" />
                 </div>
-                <h1 className="mt-6 text-5xl font-black tracking-tight">Find your person</h1>
-                <p className="mt-6 text-sm leading-7 text-white/90">
+                <h1 className="mt-5 text-4xl font-black tracking-tight sm:text-5xl max-[380px]:mt-3 max-[380px]:text-3xl">Find your person</h1>
+                <p className="mt-5 text-sm leading-7 text-white/90 max-[380px]:mt-3 max-[380px]:leading-6">
                   By continuing, you agree to build a real dating profile, share a live location for nearby matching, and only upload pictures that belong to you.
                 </p>
               </div>
 
-              <div className="mt-10 space-y-4">
+              <div className="mt-8 space-y-4 max-[380px]:mt-5 max-[380px]:space-y-3">
                 <button
                   onClick={() => continueWithMethod("google")}
-                  className="flex w-full items-center justify-center gap-3 rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100"
+                  className="flex w-full items-center justify-center gap-3 rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100 max-[380px]:py-3 max-[380px]:text-base"
                 >
                   <span className="text-2xl">G</span>
                   Continue with Google
                 </button>
                 <button
                   onClick={() => continueWithMethod("phone")}
-                  className="w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100"
+                  className="w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 transition hover:bg-stone-100 max-[380px]:py-3 max-[380px]:text-base"
                 >
                   Continue with Phone Number
                 </button>
                 <button
                   onClick={() => continueWithMethod("email")}
-                  className="w-full rounded-full border border-white/20 bg-black/20 px-5 py-4 text-lg font-semibold text-white transition hover:bg-black/30"
+                  className="w-full rounded-full border border-white/20 bg-black/20 px-5 py-4 text-lg font-semibold text-white transition hover:bg-black/30 max-[380px]:py-3 max-[380px]:text-base"
                 >
                   Continue with Email
                 </button>
