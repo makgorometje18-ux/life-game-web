@@ -138,6 +138,7 @@ const defaultSafetySettings: PartnerSafetySettings = {
 };
 const chatImagePrefix = "[chat-image]";
 const chatAudioPrefix = "[chat-audio]";
+const chatReplyPrefix = "[chat-reply]";
 const chatEmojis = ["😀", "😂", "😍", "😘", "🥰", "😎", "😢", "😡", "🔥", "❤️", "👍", "🙏", "🎉", "💯", "👀", "✨"];
 const rtcConfig: RTCConfiguration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const voiceAudioConstraints: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
@@ -178,10 +179,27 @@ const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
 const chatImageUrl = (body: string) => body.replace(chatImagePrefix, "");
 const isChatAudioMessage = (body: string) => body.startsWith(chatAudioPrefix);
 const chatAudioUrl = (body: string) => body.replace(chatAudioPrefix, "");
+type ChatReplyReference = { id: string; senderName: string; preview: string };
+const decodeChatReply = (body: string): { reply: ChatReplyReference | null; text: string } => {
+  if (!body.startsWith(chatReplyPrefix)) return { reply: null, text: body };
+  const separatorIndex = body.indexOf("\n");
+  if (separatorIndex === -1) return { reply: null, text: body };
+
+  try {
+    const reply = JSON.parse(decodeURIComponent(body.slice(chatReplyPrefix.length, separatorIndex))) as ChatReplyReference;
+    return { reply, text: body.slice(separatorIndex + 1) };
+  } catch {
+    return { reply: null, text: body.slice(separatorIndex + 1) || body };
+  }
+};
+const encodeChatReply = (reply: ChatReplyReference, text: string) =>
+  `${chatReplyPrefix}${encodeURIComponent(JSON.stringify(reply))}\n${text}`;
+const chatMessageText = (body: string) => decodeChatReply(body).text;
 const chatNotificationBody = (body: string) => {
-  if (isChatImageMessage(body)) return "Sent you a photo.";
-  if (isChatAudioMessage(body)) return "Sent you a voice note.";
-  return body || "Open the inbox to reply.";
+  const text = chatMessageText(body);
+  if (isChatImageMessage(text)) return "Sent you a photo.";
+  if (isChatAudioMessage(text)) return "Sent you a voice note.";
+  return text || "Open the inbox to reply.";
 };
 const riskyMessagePatterns = [
   /send\s+(me\s+)?(the\s+)?code/i,
@@ -1428,7 +1446,7 @@ export default function PartnerScenePage() {
     }
   };
 
-  const sendMessage = async (quickBody?: string) => {
+  const sendMessage = async (quickBody?: string, clearDraftOverride?: boolean) => {
     const body = (quickBody || chatDraft).trim();
     if (!player || !activeMatch || !body) return;
     setSaving(true);
@@ -1442,7 +1460,7 @@ export default function PartnerScenePage() {
       created_at: new Date().toISOString(),
       read_at: null,
     };
-    const shouldClearDraft = !quickBody;
+    const shouldClearDraft = clearDraftOverride ?? !quickBody;
 
     try {
       setMessages((current) => [...current, tempMessage]);
@@ -1741,7 +1759,7 @@ export default function PartnerScenePage() {
                 chatDraft={chatDraft}
                 setChatDraft={setChatDraft}
                 saving={saving}
-                onSend={() => void sendMessage()}
+                onSend={(body, clearDraft) => void sendMessage(body, clearDraft)}
                 onQuickSend={(body) => void sendMessage(body)}
                 onCommit={() => void makeItOfficial()}
                 onBack={() => {
@@ -2219,7 +2237,7 @@ function ChatPanel({
   chatDraft: string;
   setChatDraft: (value: string) => void;
   saving: boolean;
-  onSend: () => void;
+  onSend: (body?: string, clearDraft?: boolean) => void;
   onQuickSend: (body: string) => void;
   onCommit: () => void;
   onBack: () => void;
@@ -2242,6 +2260,8 @@ function ChatPanel({
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [openImageUrl, setOpenImageUrl] = useState("");
   const [messageSearch, setMessageSearch] = useState("");
+  const [replyingTo, setReplyingTo] = useState<ChatReplyReference | null>(null);
+  const [openActionsFor, setOpenActionsFor] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -2249,9 +2269,29 @@ function ChatPanel({
   const latestMessageKey = activeMessages.map((message) => `${message.id}:${message.read_at || ""}`).join("|");
   const normalizedSearch = messageSearch.trim().toLowerCase();
   const shownMessages = normalizedSearch
-    ? activeMessages.filter((message) => !isChatImageMessage(message.body) && !isChatAudioMessage(message.body) && message.body.toLowerCase().includes(normalizedSearch))
+    ? activeMessages.filter((message) => {
+        const text = chatMessageText(message.body);
+        return !isChatImageMessage(text) && !isChatAudioMessage(text) && text.toLowerCase().includes(normalizedSearch);
+      })
     : activeMessages;
   const draftWarning = safetySettings.scamWarnings ? riskyMessageWarning(chatDraft) : "";
+  const replyReferenceFor = (message: MessageRow): ChatReplyReference => {
+    const text = chatMessageText(message.body);
+    const preview = isChatImageMessage(text) ? "Photo" : isChatAudioMessage(text) ? "Voice note" : text;
+    return {
+      id: message.id,
+      senderName: message.sender_id === activePlayerId ? "You" : activeMatchProfile.display_name,
+      preview: preview.length > 90 ? `${preview.slice(0, 90)}...` : preview || "Message",
+    };
+  };
+
+  const sendCurrentMessage = () => {
+    const trimmedDraft = chatDraft.trim();
+    if (!trimmedDraft) return;
+    onSend(replyingTo ? encodeChatReply(replyingTo, trimmedDraft) : trimmedDraft, true);
+    setReplyingTo(null);
+    setOpenActionsFor(null);
+  };
 
   const jumpToLatestMessage = () => {
     const scroller = messagesScrollerRef.current;
@@ -2395,29 +2435,87 @@ function ChatPanel({
         {shownMessages.length ? (
           shownMessages.map((message) => {
             const isOwnMessage = message.sender_id === activePlayerId;
-            const messageWarning = safetySettings.scamWarnings && !isOwnMessage ? riskyMessageWarning(message.body) : "";
+            const { reply, text: messageBody } = decodeChatReply(message.body);
+            const messageWarning = safetySettings.scamWarnings && !isOwnMessage ? riskyMessageWarning(messageBody) : "";
 
             return (
               <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[78%] ${isOwnMessage ? "items-end" : "items-start"} flex flex-col`}>
-                  {isChatImageMessage(message.body) ? (
+                  <div className={`group relative flex items-start gap-2 ${isOwnMessage ? "flex-row-reverse" : ""}`}>
+                  <div className={`${isOwnMessage ? "items-end" : "items-start"} flex min-w-0 flex-col`}>
+                  {reply ? (
+                    <div className={`mb-1 max-w-full rounded-2xl border-l-4 px-3 py-2 text-left text-xs leading-5 ${isOwnMessage ? "border-emerald-300 bg-blue-500/28 text-white/82" : "border-sky-300 bg-white/8 text-white/76"}`}>
+                      <span className="block font-black text-sky-200">{reply.senderName}</span>
+                      <span className="line-clamp-2">{reply.preview}</span>
+                    </div>
+                  ) : null}
+                  {isChatImageMessage(messageBody) ? (
                     <button
                       type="button"
-                      onClick={() => setOpenImageUrl(chatImageUrl(message.body))}
+                      onClick={() => setOpenImageUrl(chatImageUrl(messageBody))}
                       className="overflow-hidden rounded-2xl border border-white/10 bg-white/10 text-left shadow-sm"
                       aria-label="Open chat picture"
                     >
-                      <img src={chatImageUrl(message.body)} alt="Chat picture" className="max-h-80 w-full object-cover" onLoad={scrollToLatestMessage} />
+                      <img src={chatImageUrl(messageBody)} alt="Chat picture" className="max-h-80 w-full object-cover" onLoad={scrollToLatestMessage} />
                     </button>
-                  ) : isChatAudioMessage(message.body) ? (
+                  ) : isChatAudioMessage(messageBody) ? (
                     <div className={`rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600" : "bg-[#152238]"}`}>
-                      <audio controls src={chatAudioUrl(message.body)} className="h-10 max-w-full" onLoadedMetadata={scrollToLatestMessage} />
+                      <audio controls src={chatAudioUrl(messageBody)} className="h-10 max-w-full" onLoadedMetadata={scrollToLatestMessage} />
                     </div>
                   ) : (
                     <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
-                      {message.body}
+                      {messageBody}
                     </div>
                   )}
+                  </div>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setOpenActionsFor((current) => (current === message.id ? null : message.id))}
+                      className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-white/55 opacity-100 transition hover:bg-white/10 hover:text-white sm:opacity-0 sm:group-hover:opacity-100"
+                      aria-label="Message options"
+                    >
+                      ...
+                    </button>
+                    {openActionsFor === message.id ? (
+                      <div className={`absolute top-9 z-20 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#f8fafc] py-1 text-sm font-semibold text-slate-800 shadow-2xl ${isOwnMessage ? "right-0" : "left-0"}`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyingTo(replyReferenceFor(message));
+                            setOpenActionsFor(null);
+                          }}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"
+                        >
+                          <span>↩</span>
+                          <span>Reply</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(messageBody);
+                            setOpenActionsFor(null);
+                          }}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"
+                        >
+                          <span>□</span>
+                          <span>Copy</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChatDraft(`Forwarded: ${messageBody}`);
+                            setOpenActionsFor(null);
+                          }}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"
+                        >
+                          <span>↷</span>
+                          <span>Forward</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  </div>
                   {messageWarning ? (
                     <p className="mt-2 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-100">
                       {messageWarning}
@@ -2445,6 +2543,22 @@ function ChatPanel({
       </div>
 
       <div className="shrink-0 border-t border-white/10 bg-[#0b1728] px-3 py-3">
+        {replyingTo ? (
+          <div className="mb-3 flex items-center gap-3 rounded-2xl border-l-4 border-sky-300 bg-white/10 px-3 py-2 text-left">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black text-sky-200">Replying to {replyingTo.senderName}</p>
+              <p className="mt-0.5 truncate text-xs text-white/68">{replyingTo.preview}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-black text-white/70 transition hover:bg-white/15"
+              aria-label="Cancel reply"
+            >
+              x
+            </button>
+          </div>
+        ) : null}
         {showEmojiPicker ? (
           <div className="mb-3 grid grid-cols-8 gap-2 rounded-3xl border border-white/10 bg-[#101d31] p-3 shadow-xl">
             {chatEmojis.map((emoji) => (
@@ -2496,7 +2610,10 @@ function ChatPanel({
             value={chatDraft}
             onChange={(event) => setChatDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) onSend();
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                sendCurrentMessage();
+              }
             }}
             placeholder="Aa"
             className="min-w-0 flex-1 rounded-full bg-white/10 px-4 py-3 text-white outline-none placeholder:text-white/45"
@@ -2504,7 +2621,7 @@ function ChatPanel({
           <button onClick={() => setShowEmojiPicker((current) => !current)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Choose emoji">
             <SmileIcon />
           </button>
-          <button onClick={chatDraft.trim() ? onSend : () => onQuickSend("\u{1F44D}")} disabled={saving} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
+          <button onClick={chatDraft.trim() ? sendCurrentMessage : () => onQuickSend("\u{1F44D}")} disabled={saving} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
             {chatDraft.trim() ? "Send" : <ThumbIcon />}
           </button>
         </div>
