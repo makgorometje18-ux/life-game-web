@@ -1352,6 +1352,12 @@ export default function PartnerSetupPage() {
         {isLightMode ? "Dark" : "Light"}
       </button>
 
+      {step === "welcome" ? (
+        <div className="fixed left-1/2 top-24 z-[60] flex h-20 w-20 -translate-x-1/2 items-center justify-center rounded-full bg-black/15 shadow-[0_20px_55px_rgba(0,0,0,0.28)] backdrop-blur-sm max-[380px]:top-20 max-[380px]:h-16 max-[380px]:w-16">
+          <GameLogo className="h-14 w-14 text-white drop-shadow-[0_10px_24px_rgba(0,0,0,0.45)] max-[380px]:h-11 max-[380px]:w-11" />
+        </div>
+      ) : null}
+
       <div className={`mx-auto w-full max-w-lg ${step === "profile" ? "" : "max-h-full"}`}>
         <div
           className={`rounded-[2rem] p-4 shadow-2xl backdrop-blur sm:p-5 ${step === "profile" ? "" : "max-h-full overflow-hidden"} ${
@@ -1360,11 +1366,8 @@ export default function PartnerSetupPage() {
         >
           {step === "welcome" ? (
             <>
-              <div className="pt-5 text-center max-[380px]:pt-3">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white/12 max-[380px]:h-11 max-[380px]:w-11">
-                  <GameLogo className="h-9 w-9 max-[380px]:h-7 max-[380px]:w-7" />
-                </div>
-                <h1 className="mt-5 text-4xl font-black tracking-tight sm:text-5xl max-[380px]:mt-3 max-[380px]:text-3xl">Find your person</h1>
+              <div className="pt-7 text-center max-[380px]:pt-5">
+                <h1 className="text-4xl font-black tracking-tight sm:text-5xl max-[380px]:text-3xl">Find your person</h1>
                 <p className="mt-5 text-sm leading-7 text-white/90 max-[380px]:mt-3 max-[380px]:leading-6">
                   By continuing, you agree to build a real dating profile, share a live location for nearby matching, and only upload pictures that belong to you.
                 </p>
