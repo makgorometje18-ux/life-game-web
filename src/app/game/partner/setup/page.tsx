@@ -1734,7 +1734,7 @@ export default function PartnerSetupPage() {
               ) : null}
             </div>
 
-            <div className="min-h-0 bg-[#081424] px-5 py-5 lg:border-l lg:border-emerald-200/10 lg:py-4">
+            <div className="sticky bottom-0 z-10 min-h-0 border-t border-emerald-200/10 bg-[#081424]/96 px-4 py-4 shadow-[0_-18px_45px_rgba(0,0,0,0.35)] backdrop-blur lg:static lg:border-l lg:border-t-0 lg:border-emerald-200/10 lg:bg-[#081424] lg:px-5 lg:py-4 lg:shadow-none lg:backdrop-blur-0 max-[420px]:py-3">
               <div className="grid grid-cols-6 gap-2">
                 {livenessSteps.map((item) => {
                   const done = completedLivenessSteps.includes(item.id) || livenessStatus === "verified";
@@ -1757,7 +1757,7 @@ export default function PartnerSetupPage() {
               <button
                 type="button"
                 onClick={livenessStatus === "verified" ? closeLivenessCheck : () => void startLivenessCheck()}
-                className="mt-5 w-full rounded-full bg-[linear-gradient(135deg,#ecfeff,#d9f99d)] px-5 py-4 text-base font-black text-slate-950 shadow-[0_18px_35px_rgba(34,197,94,0.22)] transition hover:brightness-105"
+                className="mt-4 w-full rounded-full bg-[linear-gradient(135deg,#ecfeff,#d9f99d)] px-5 py-3.5 text-base font-black text-slate-950 shadow-[0_18px_35px_rgba(34,197,94,0.22)] transition hover:brightness-105 lg:mt-5 lg:py-4 max-[420px]:py-3 max-[420px]:text-sm"
               >
                 {livenessStatus === "verified" ? "Use Verified Selfie" : "Restart Secure Scan"}
               </button>
