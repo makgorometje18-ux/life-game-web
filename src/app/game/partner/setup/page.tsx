@@ -1495,15 +1495,15 @@ export default function PartnerSetupPage() {
           ) : null}
 
           {step === "location" ? (
-            <>
-              <div className="pt-8 text-center">
-                <h1 className="text-3xl font-black tracking-tight sm:text-4xl">So, are you from around here?</h1>
-                <p className="mx-auto mt-5 max-w-sm text-sm leading-6 text-white/62">
+            <div className="flex h-[calc(100dvh-8.5rem)] min-h-[30rem] max-h-[42rem] flex-col justify-between py-2 text-center max-[380px]:h-[calc(100dvh-7.5rem)] max-[380px]:min-h-0">
+              <div className="mx-auto max-w-sm">
+                <h1 className="text-3xl font-black leading-tight tracking-tight max-[380px]:text-2xl sm:text-4xl">So, are you from around here?</h1>
+                <p className="mx-auto mt-4 max-w-sm text-sm leading-6 text-white/62 max-[380px]:mt-3 max-[380px]:leading-5">
                   Set your location to see who&apos;s in your neighborhood or beyond. You won&apos;t be able to match with people otherwise.
                 </p>
               </div>
 
-              <div className="relative mx-auto mt-28 flex h-40 w-40 items-center justify-center rounded-full bg-white/95 text-stone-900 shadow-[0_24px_70px_rgba(255,255,255,0.12)] sm:h-48 sm:w-48">
+              <div className="relative mx-auto flex h-36 w-36 items-center justify-center rounded-full bg-white/95 text-stone-900 shadow-[0_24px_70px_rgba(255,255,255,0.13),0_0_0_18px_rgba(255,255,255,0.035)] max-[380px]:h-28 max-[380px]:w-28 sm:h-44 sm:w-44">
                 <span className="absolute h-9 w-9 rounded-full border-2 border-stone-400 border-b-transparent"></span>
                 <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-stone-300 text-4xl">⌖</div>
               </div>
@@ -1511,13 +1511,13 @@ export default function PartnerSetupPage() {
               <button
                 onClick={openLocationPermission}
                 disabled={locating}
-                className="mt-28 w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 shadow-[0_18px_40px_rgba(0,0,0,0.35)] transition hover:bg-stone-100 active:translate-y-1 disabled:opacity-60"
+                className="w-full rounded-full bg-white px-5 py-4 text-lg font-semibold text-stone-950 shadow-[0_18px_40px_rgba(0,0,0,0.35)] transition hover:bg-stone-100 active:translate-y-1 disabled:opacity-60 max-[380px]:py-3 max-[380px]:text-base"
               >
                 {locating ? "Opening..." : "Allow"}
               </button>
               <button
                 type="button"
-                className="mx-auto mt-6 flex items-center gap-5 text-center text-base font-black leading-6 text-white/86"
+                className="mx-auto mt-4 flex items-center justify-center gap-3 text-center text-sm font-black leading-6 text-white/80 max-[380px]:mt-3"
                 onClick={() =>
                   setMessage("Your location is used only for nearby partner matching and is saved after you approve the device location popup.")
                 }
@@ -1525,7 +1525,7 @@ export default function PartnerSetupPage() {
                 <span>How is my location used?</span>
                 <span className="text-3xl leading-none text-white/70">↓</span>
               </button>
-            </>
+            </div>
           ) : null}
 
           {step === "profile" ? (
