@@ -1319,7 +1319,7 @@ export default function PartnerSetupPage() {
 
   return (
     <main
-      className={`${step === "profile" ? "min-h-screen overflow-x-hidden px-4 pb-40 pt-40 sm:px-5" : "flex h-[100dvh] overflow-hidden px-3 pb-3 pt-20 sm:px-5 sm:pb-5"} items-center justify-center transition-colors ${
+      className={`${step === "profile" ? "min-h-screen overflow-x-hidden px-4 pb-24 pt-24 sm:px-5" : "flex h-[100dvh] overflow-hidden px-3 pb-3 pt-20 sm:px-5 sm:pb-5"} items-center justify-center transition-colors ${
         isLightMode
           ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
           : "bg-[linear-gradient(180deg,#ff5b7b_0%,#fd3974_22%,#17171b_22%,#0a0b10_100%)] text-white"
@@ -1354,10 +1354,6 @@ export default function PartnerSetupPage() {
       >
         {isLightMode ? "Dark" : "Light"}
       </button>
-
-      <div className="fixed left-1/2 top-24 z-[60] flex h-20 w-20 -translate-x-1/2 items-center justify-center rounded-full bg-black/15 shadow-[0_20px_55px_rgba(0,0,0,0.28)] backdrop-blur-sm max-[380px]:top-20 max-[380px]:h-16 max-[380px]:w-16">
-          <GameLogo className="h-14 w-14 text-white drop-shadow-[0_10px_24px_rgba(0,0,0,0.45)] max-[380px]:h-11 max-[380px]:w-11" />
-      </div>
 
       <div className={`mx-auto w-full max-w-lg ${step === "profile" ? "" : "max-h-full"}`}>
         <div
