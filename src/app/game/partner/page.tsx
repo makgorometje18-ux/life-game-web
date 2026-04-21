@@ -1,6 +1,6 @@
 "use client";
 
-import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GameLogo } from "@/components/game-logo";
 import { requestNotificationPermission, showSystemNotification } from "@/lib/browser-notifications";
 import { supabase } from "@/lib/supabase";
@@ -140,6 +140,12 @@ const defaultSafetySettings: PartnerSafetySettings = {
 };
 const chatImagePrefix = "[chat-image]";
 const chatAudioPrefix = "[chat-audio]";
+const chatVideoPrefix = "[chat-video]";
+const chatDocumentPrefix = "[chat-document]";
+const chatContactPrefix = "[chat-contact]";
+const chatPollPrefix = "[chat-poll]";
+const chatEventPrefix = "[chat-event]";
+const chatStickerPrefix = "[chat-sticker]";
 const chatReplyPrefix = "[chat-reply]";
 const chatEmojis = ["😀", "😂", "😍", "😘", "🥰", "😎", "😢", "😡", "🔥", "❤️", "👍", "🙏", "🎉", "💯", "👀", "✨"];
 const rtcConfig: RTCConfiguration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
@@ -181,6 +187,27 @@ const isChatImageMessage = (body: string) => body.startsWith(chatImagePrefix);
 const chatImageUrl = (body: string) => body.replace(chatImagePrefix, "");
 const isChatAudioMessage = (body: string) => body.startsWith(chatAudioPrefix);
 const chatAudioUrl = (body: string) => body.replace(chatAudioPrefix, "");
+const isChatVideoMessage = (body: string) => body.startsWith(chatVideoPrefix);
+const isChatDocumentMessage = (body: string) => body.startsWith(chatDocumentPrefix);
+const isChatContactMessage = (body: string) => body.startsWith(chatContactPrefix);
+const isChatPollMessage = (body: string) => body.startsWith(chatPollPrefix);
+const isChatEventMessage = (body: string) => body.startsWith(chatEventPrefix);
+const isChatStickerMessage = (body: string) => body.startsWith(chatStickerPrefix);
+type ChatAttachmentPayload = { url: string; name: string; type?: string; size?: number };
+const encodeChatPayload = (payload: unknown) => encodeURIComponent(JSON.stringify(payload));
+const decodeChatPayload = <T,>(body: string, prefix: string, fallback: T): T => {
+  try {
+    return JSON.parse(decodeURIComponent(body.replace(prefix, ""))) as T;
+  } catch {
+    return fallback;
+  }
+};
+const chatVideoPayload = (body: string) => decodeChatPayload<ChatAttachmentPayload>(body, chatVideoPrefix, { url: "", name: "Video" });
+const chatDocumentPayload = (body: string) => decodeChatPayload<ChatAttachmentPayload>(body, chatDocumentPrefix, { url: "", name: "Document" });
+const chatContactPayload = (body: string) => decodeChatPayload<{ name: string; detail: string }>(body, chatContactPrefix, { name: "Contact", detail: "" });
+const chatPollPayload = (body: string) => decodeChatPayload<{ question: string; options: string[] }>(body, chatPollPrefix, { question: "Poll", options: [] });
+const chatEventPayload = (body: string) => decodeChatPayload<{ title: string; detail: string }>(body, chatEventPrefix, { title: "Event", detail: "" });
+const chatStickerValue = (body: string) => decodeURIComponent(body.replace(chatStickerPrefix, "")) || "👍";
 type ChatReplyReference = { id: string; senderName: string; preview: string };
 const decodeChatReply = (body: string): { reply: ChatReplyReference | null; text: string } => {
   if (!body.startsWith(chatReplyPrefix)) return { reply: null, text: body };
@@ -201,6 +228,12 @@ const chatNotificationBody = (body: string) => {
   const text = chatMessageText(body);
   if (isChatImageMessage(text)) return "Sent you a photo.";
   if (isChatAudioMessage(text)) return "Sent you a voice note.";
+  if (isChatVideoMessage(text)) return "Sent you a video.";
+  if (isChatDocumentMessage(text)) return "Sent you a document.";
+  if (isChatContactMessage(text)) return "Sent you a contact.";
+  if (isChatPollMessage(text)) return "Sent you a poll.";
+  if (isChatEventMessage(text)) return "Sent you an event.";
+  if (isChatStickerMessage(text)) return "Sent you a sticker.";
   return text || "Open the inbox to reply.";
 };
 const riskyMessagePatterns = [
@@ -215,7 +248,7 @@ const riskyMessagePatterns = [
   /whatsapp\s+code/i,
 ];
 const riskyMessageWarning = (body: string) => {
-  if (isChatImageMessage(body) || isChatAudioMessage(body)) return "";
+  if (isChatImageMessage(body) || isChatAudioMessage(body) || isChatVideoMessage(body) || isChatDocumentMessage(body)) return "";
   return riskyMessagePatterns.some((pattern) => pattern.test(body))
     ? "Be careful: never share passwords, OTP codes, banking details, or money with someone you just met."
     : "";
@@ -1586,6 +1619,75 @@ export default function PartnerScenePage() {
     }
   };
 
+  const sendChatAttachment = async (file: File, kind: "document" | "media" | "camera" | "audio") => {
+    if (!player || !activeMatch || !file.size) return;
+    if (activeMatchProfile && (userControls[activeMatchProfile.user_id]?.blocked || userControls[activeMatchProfile.user_id]?.blockedBy)) {
+      setError(
+        userControls[activeMatchProfile.user_id]?.blocked
+          ? `Unblock ${activeMatchProfile.display_name} before sending an attachment.`
+          : `You cannot send ${activeMatchProfile.display_name} an attachment right now.`
+      );
+      return;
+    }
+
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    const isAudio = file.type.startsWith("audio/");
+    if ((kind === "media" || kind === "camera") && !isImage && !isVideo) return;
+    if (kind === "audio" && !isAudio) return;
+
+    setSaving(true);
+    setError("");
+
+    try {
+      const extension = file.name.split(".").pop() || (isVideo ? "mp4" : isAudio ? "mp3" : isImage ? "jpg" : "file");
+      const safeKind = kind === "camera" ? "photo" : kind;
+      const filePath = `${player.id}/${safeKind}-${activeMatch.id}-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("dating-photos").upload(filePath, file, {
+        contentType: file.type || "application/octet-stream",
+        upsert: true,
+      });
+
+      if (uploadError) {
+        setError(`Could not upload attachment: ${uploadError.message}`);
+        setSaving(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from("dating-photos").getPublicUrl(filePath);
+      const payload: ChatAttachmentPayload = { url: publicUrlData.publicUrl, name: file.name || "Attachment", type: file.type, size: file.size };
+      const body = isImage
+        ? `${chatImagePrefix}${publicUrlData.publicUrl}`
+        : isVideo
+          ? `${chatVideoPrefix}${encodeChatPayload(payload)}`
+          : isAudio
+            ? `${chatAudioPrefix}${publicUrlData.publicUrl}`
+            : `${chatDocumentPrefix}${encodeChatPayload(payload)}`;
+
+      const { data: sentMessage, error: sendError } = await supabase
+        .from("dating_messages")
+        .insert({ match_id: activeMatch.id, sender_id: player.id, body })
+        .select("id, match_id, sender_id, body, created_at, read_at")
+        .single();
+
+      if (sendError) {
+        setError(schemaHelp);
+        setSaving(false);
+        return;
+      }
+
+      if (sentMessage) {
+        setMessages((current) => (current.some((message) => message.id === sentMessage.id) ? current : [...current, sentMessage as MessageRow]));
+      }
+      setStatus(`Attachment sent to ${activeMatchProfile?.display_name || "your match"}.`);
+    } catch (sendError) {
+      console.error("Dating attachment failed", sendError);
+      setError("Could not send the attachment right now.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const sendVoiceNote = async (blob: Blob) => {
     if (!player || !activeMatch || !blob.size) return;
     if (activeMatchProfile && (userControls[activeMatchProfile.user_id]?.blocked || userControls[activeMatchProfile.user_id]?.blockedBy)) {
@@ -1812,6 +1914,7 @@ export default function PartnerScenePage() {
                 userControls={activeMatchControls}
                 isTyping={Boolean(typingByMatch[activeMatch.id])}
                 onImageSend={(file) => void sendChatImage(file)}
+                onAttachmentSend={(file, kind) => void sendChatAttachment(file, kind)}
                 onVoiceSend={(blob) => void sendVoiceNote(blob)}
                 onStartCall={(kind) => void startCall(kind)}
                 onToggleMute={() => updateUserControls(activeMatchProfile.user_id, { muted: !activeMatchControls.muted })}
@@ -2277,6 +2380,7 @@ function ChatPanel({
   userControls,
   isTyping,
   onImageSend,
+  onAttachmentSend,
   onVoiceSend,
   onStartCall,
   onToggleMute,
@@ -2299,6 +2403,7 @@ function ChatPanel({
   userControls: PartnerUserControls;
   isTyping: boolean;
   onImageSend: (file: File) => void;
+  onAttachmentSend: (file: File, kind: "document" | "media" | "camera" | "audio") => void;
   onVoiceSend: (blob: Blob) => void;
   onStartCall: (kind: "voice" | "video") => void;
   onToggleMute: () => void;
@@ -2325,10 +2430,15 @@ function ChatPanel({
   const [voiceElapsedSeconds, setVoiceElapsedSeconds] = useState(0);
   const [voicePreviewBlob, setVoicePreviewBlob] = useState<Blob | null>(null);
   const [voicePreviewUrl, setVoicePreviewUrl] = useState("");
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const discardingVoiceRef = useRef(false);
   const voiceTimerRef = useRef<number | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
   const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const latestMessageKey = activeMessages.map((message) => `${message.id}:${message.read_at || ""}`).join("|");
@@ -2342,7 +2452,23 @@ function ChatPanel({
   const draftWarning = safetySettings.scamWarnings ? riskyMessageWarning(chatDraft) : "";
   const replyReferenceFor = (message: MessageRow): ChatReplyReference => {
     const text = chatMessageText(message.body);
-    const preview = isChatImageMessage(text) ? "Photo" : isChatAudioMessage(text) ? "Voice note" : text;
+    const preview = isChatImageMessage(text)
+      ? "Photo"
+      : isChatAudioMessage(text)
+        ? "Voice note"
+        : isChatVideoMessage(text)
+          ? "Video"
+          : isChatDocumentMessage(text)
+            ? chatDocumentPayload(text).name
+            : isChatContactMessage(text)
+              ? `Contact: ${chatContactPayload(text).name}`
+              : isChatPollMessage(text)
+                ? `Poll: ${chatPollPayload(text).question}`
+                : isChatEventMessage(text)
+                  ? `Event: ${chatEventPayload(text).title}`
+                  : isChatStickerMessage(text)
+                    ? `Sticker: ${chatStickerValue(text)}`
+                    : text;
     return {
       id: message.id,
       senderName: message.sender_id === activePlayerId ? "You" : activeMatchProfile.display_name,
@@ -2361,6 +2487,37 @@ function ChatPanel({
   const closeMenuWithNotice = (notice: string) => {
     setMenuNotice(notice);
     setShowConversationMenu(false);
+  };
+  const sendStructuredAttachment = (body: string) => {
+    onQuickSend(body);
+    setShowAttachMenu(false);
+  };
+  const sendContactAttachment = () => {
+    sendStructuredAttachment(`${chatContactPrefix}${encodeChatPayload({ name: activeMatchProfile.display_name, detail: distanceLabel || activeMatchProfile.location_label || activeMatchProfile.city || "Partner contact" })}`);
+  };
+  const sendPollAttachment = () => {
+    const question = window.prompt("Poll question");
+    if (!question?.trim()) return;
+    const rawOptions = window.prompt("Options separated by commas", "Yes, No");
+    const options = (rawOptions || "Yes, No").split(",").map((option) => option.trim()).filter(Boolean).slice(0, 6);
+    sendStructuredAttachment(`${chatPollPrefix}${encodeChatPayload({ question: question.trim(), options: options.length ? options : ["Yes", "No"] })}`);
+  };
+  const sendEventAttachment = () => {
+    const title = window.prompt("Event title");
+    if (!title?.trim()) return;
+    const detail = window.prompt("Event details or date", "Today");
+    sendStructuredAttachment(`${chatEventPrefix}${encodeChatPayload({ title: title.trim(), detail: detail?.trim() || "No details added" })}`);
+  };
+  const sendStickerAttachment = () => {
+    const sticker = window.prompt("Choose sticker emoji", "❤️");
+    if (!sticker?.trim()) return;
+    sendStructuredAttachment(`${chatStickerPrefix}${encodeURIComponent(sticker.trim())}`);
+  };
+  const handleAttachmentInput = (event: ChangeEvent<HTMLInputElement>, kind: "document" | "media" | "camera" | "audio") => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    setShowAttachMenu(false);
+    if (file) onAttachmentSend(file, kind);
   };
 
   const voiceDurationLabel = `${Math.floor(voiceElapsedSeconds / 60)}:${String(voiceElapsedSeconds % 60).padStart(2, "0")}`;
@@ -2647,6 +2804,39 @@ function ChatPanel({
                     <div className={`rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600" : "bg-[#152238]"}`}>
                       <audio controls src={chatAudioUrl(messageBody)} className="h-10 max-w-full" onLoadedMetadata={scrollToLatestMessage} />
                     </div>
+                  ) : isChatVideoMessage(messageBody) ? (
+                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/35 shadow-sm">
+                      <video controls src={chatVideoPayload(messageBody).url} className="max-h-80 w-full" onLoadedMetadata={scrollToLatestMessage} />
+                    </div>
+                  ) : isChatDocumentMessage(messageBody) ? (
+                    <a href={chatDocumentPayload(messageBody).url} target="_blank" rel="noreferrer" className={`flex max-w-xs items-center gap-3 rounded-[1.35rem] px-4 py-3 text-sm shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 text-lg">📄</span>
+                      <span className="min-w-0">
+                        <span className="block truncate font-black">{chatDocumentPayload(messageBody).name}</span>
+                        <span className="text-xs opacity-70">Tap to open document</span>
+                      </span>
+                    </a>
+                  ) : isChatContactMessage(messageBody) ? (
+                    <div className={`max-w-xs rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
+                      <p className="text-xs font-black uppercase opacity-70">Contact</p>
+                      <p className="mt-1 font-black">{chatContactPayload(messageBody).name}</p>
+                      <p className="mt-1 text-xs opacity-75">{chatContactPayload(messageBody).detail}</p>
+                    </div>
+                  ) : isChatPollMessage(messageBody) ? (
+                    <div className={`max-w-xs rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
+                      <p className="font-black">{chatPollPayload(messageBody).question}</p>
+                      <div className="mt-3 grid gap-2">
+                        {chatPollPayload(messageBody).options.map((option) => <span key={option} className="rounded-full border border-white/20 px-3 py-2 text-xs font-bold">{option}</span>)}
+                      </div>
+                    </div>
+                  ) : isChatEventMessage(messageBody) ? (
+                    <div className={`max-w-xs rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
+                      <p className="text-xs font-black uppercase opacity-70">Event</p>
+                      <p className="mt-1 font-black">{chatEventPayload(messageBody).title}</p>
+                      <p className="mt-1 text-xs opacity-75">{chatEventPayload(messageBody).detail}</p>
+                    </div>
+                  ) : isChatStickerMessage(messageBody) ? (
+                    <div className="text-6xl leading-none drop-shadow-lg">{chatStickerValue(messageBody)}</div>
                   ) : (
                     <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
                       {messageBody}
@@ -2812,6 +3002,33 @@ function ChatPanel({
           </div>
         ) : (
           <div className="flex items-center gap-2">
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowAttachMenu((current) => !current)}
+                disabled={communicationBlocked || saving}
+                className="flex h-10 w-10 items-center justify-center rounded-full text-2xl text-sky-300 transition hover:bg-white/10 disabled:opacity-40"
+                aria-label="Attach"
+              >
+                +
+              </button>
+              {showAttachMenu ? (
+                <div className="absolute bottom-12 left-0 z-40 w-56 overflow-hidden rounded-2xl bg-white py-2 text-sm font-semibold text-slate-800 shadow-[0_22px_70px_rgba(0,0,0,0.38)]">
+                  <button type="button" onClick={() => documentInputRef.current?.click()} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-indigo-500">▣</span><span>Document</span></button>
+                  <button type="button" onClick={() => mediaInputRef.current?.click()} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-blue-500">▣</span><span>Photos & videos</span></button>
+                  <button type="button" onClick={() => cameraInputRef.current?.click()} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-pink-500">▣</span><span>Camera</span></button>
+                  <button type="button" onClick={() => audioInputRef.current?.click()} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-orange-500">▣</span><span>Audio</span></button>
+                  <button type="button" onClick={sendContactAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-sky-500">●</span><span>Contact</span></button>
+                  <button type="button" onClick={sendPollAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-amber-500">≡</span><span>Poll</span></button>
+                  <button type="button" onClick={sendEventAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-rose-500">▦</span><span>Event</span></button>
+                  <button type="button" onClick={sendStickerAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-emerald-500">✚</span><span>New sticker</span></button>
+                </div>
+              ) : null}
+              <input ref={documentInputRef} type="file" className="sr-only" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" onChange={(event) => handleAttachmentInput(event, "document")} />
+              <input ref={mediaInputRef} type="file" className="sr-only" accept="image/*,video/*" onChange={(event) => handleAttachmentInput(event, "media")} />
+              <input ref={cameraInputRef} type="file" className="sr-only" accept="image/*" capture="environment" onChange={(event) => handleAttachmentInput(event, "camera")} />
+              <input ref={audioInputRef} type="file" className="sr-only" accept="audio/*" onChange={(event) => handleAttachmentInput(event, "audio")} />
+            </div>
             <button
               onClick={() => void startVoiceRecording()}
               disabled={communicationBlocked}
