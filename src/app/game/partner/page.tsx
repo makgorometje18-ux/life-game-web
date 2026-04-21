@@ -80,6 +80,15 @@ type PartnerSafetySettings = {
   quietMode: boolean;
   scamWarnings: boolean;
   chatSearch: boolean;
+  hideDistance: boolean;
+  hideOnlineStatus: boolean;
+  sendReadReceipts: boolean;
+};
+type PartnerUserControls = {
+  muted?: boolean;
+  blocked?: boolean;
+  reported?: boolean;
+  reportNote?: string;
 };
 type CallState = {
   status: CallStatus;
@@ -108,11 +117,15 @@ const sortPair = (first: string, second: string) => (first < second ? [first, se
 const goalPalette = ["from-rose-500/80 to-orange-400/80", "from-fuchsia-700/80 to-purple-500/80", "from-amber-400/80 to-yellow-500/80"];
 const summaryKey = (userId: string) => `dating-notification-summary:${userId}`;
 const safetySettingsKey = (userId: string) => `dating-safety-settings:${userId}`;
+const userControlsKey = (userId: string) => `dating-user-controls:${userId}`;
 const defaultSafetySettings: PartnerSafetySettings = {
   messageNotifications: true,
   quietMode: false,
   scamWarnings: true,
   chatSearch: true,
+  hideDistance: false,
+  hideOnlineStatus: false,
+  sendReadReceipts: true,
 };
 const chatImagePrefix = "[chat-image]";
 const chatAudioPrefix = "[chat-audio]";
@@ -250,6 +263,7 @@ export default function PartnerScenePage() {
   const [chatDraft, setChatDraft] = useState("");
   const [isLightMode, setIsLightMode] = useState(false);
   const [safetySettings, setSafetySettings] = useState<PartnerSafetySettings>(defaultSafetySettings);
+  const [userControls, setUserControls] = useState<Record<string, PartnerUserControls>>({});
   const [matchCelebrationProfile, setMatchCelebrationProfile] = useState<DatingProfile | null>(null);
   const [callState, setCallState] = useState<CallState | null>(null);
   const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null);
@@ -290,6 +304,21 @@ export default function PartnerScenePage() {
       if (player && typeof window !== "undefined") {
         window.localStorage.setItem(safetySettingsKey(player.id), JSON.stringify(next));
       }
+      return next;
+    });
+  };
+
+  const updateUserControls = (userId: string, changes: PartnerUserControls) => {
+    setUserControls((current) => {
+      const next = {
+        ...current,
+        [userId]: { ...current[userId], ...changes },
+      };
+
+      if (player && typeof window !== "undefined") {
+        window.localStorage.setItem(userControlsKey(player.id), JSON.stringify(next));
+      }
+
       return next;
     });
   };
@@ -461,19 +490,31 @@ export default function PartnerScenePage() {
     const stored = window.localStorage.getItem(safetySettingsKey(player.id));
     if (!stored) {
       setSafetySettings(defaultSafetySettings);
+    } else {
+      try {
+        setSafetySettings({ ...defaultSafetySettings, ...JSON.parse(stored) });
+      } catch {
+        window.localStorage.removeItem(safetySettingsKey(player.id));
+        setSafetySettings(defaultSafetySettings);
+      }
+    }
+
+    const storedControls = window.localStorage.getItem(userControlsKey(player.id));
+    if (!storedControls) {
+      setUserControls({});
       return;
     }
 
     try {
-      setSafetySettings({ ...defaultSafetySettings, ...JSON.parse(stored) });
+      setUserControls(JSON.parse(storedControls) as Record<string, PartnerUserControls>);
     } catch {
-      window.localStorage.removeItem(safetySettingsKey(player.id));
-      setSafetySettings(defaultSafetySettings);
+      window.localStorage.removeItem(userControlsKey(player.id));
+      setUserControls({});
     }
   }, [player]);
 
   useEffect(() => {
-    if (!player) return;
+    if (!player || safetySettings.hideOnlineStatus) return;
 
     const markOnline = () => {
       setPresenceMap((current) => ({ ...current, [player.id]: { is_online: true, last_seen_at: new Date().toISOString() } }));
@@ -487,6 +528,11 @@ export default function PartnerScenePage() {
       if (document.visibilityState === "visible") markOnline();
     };
 
+    if (safetySettings.hideOnlineStatus) {
+      markOffline();
+      return;
+    }
+
     markOnline();
     const heartbeat = window.setInterval(markOnline, 15000);
     window.addEventListener("focus", markOnline);
@@ -499,7 +545,7 @@ export default function PartnerScenePage() {
       document.removeEventListener("visibilitychange", syncVisibility);
       window.removeEventListener("pagehide", markOffline);
     };
-  }, [player]);
+  }, [player, safetySettings.hideOnlineStatus]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -539,6 +585,7 @@ export default function PartnerScenePage() {
 
       const match = matches.find((entry) => entry.id === row.match_id);
       const senderProfile = match ? profileMap[match.user_a === player.id ? match.user_b : match.user_a] : null;
+      if (senderProfile && (userControls[senderProfile.user_id]?.muted || userControls[senderProfile.user_id]?.blocked)) return;
       notifiedMessageIdsRef.current.add(row.id);
 
       void showSystemNotification({
@@ -611,7 +658,7 @@ export default function PartnerScenePage() {
       window.clearInterval(interval);
       void supabase.removeChannel(channel);
     };
-  }, [activeMatchId, activeTab, matches, player, profileMap, safetySettings.messageNotifications, safetySettings.quietMode]);
+  }, [activeMatchId, activeTab, matches, player, profileMap, safetySettings.messageNotifications, safetySettings.quietMode, userControls]);
 
   useEffect(() => {
     if (!player) return;
@@ -654,10 +701,10 @@ export default function PartnerScenePage() {
       void channel.untrack();
       void supabase.removeChannel(channel);
     };
-  }, [matches, player]);
+  }, [matches, player, safetySettings.hideOnlineStatus]);
 
   useEffect(() => {
-    if (!player || activeTab !== "chat" || !activeMatchId) return;
+    if (!player || activeTab !== "chat" || !activeMatchId || !safetySettings.sendReadReceipts) return;
 
     const unreadMessageIds = messages
       .filter((message) => message.match_id === activeMatchId && message.sender_id !== player.id && !message.read_at)
@@ -687,7 +734,7 @@ export default function PartnerScenePage() {
           setMessages((current) => mergeMessagesPreservingReads(current, data as MessageRow[]));
         }
       });
-  }, [activeMatchId, activeTab, messages, player]);
+  }, [activeMatchId, activeTab, messages, player, safetySettings.sendReadReceipts]);
 
   useEffect(() => {
     if (!player || !activeMatchId) return;
@@ -807,10 +854,15 @@ export default function PartnerScenePage() {
     };
   }, [matches.length, player]);
 
+  const visiblePartnerProfiles = useMemo(
+    () => profiles.filter((profile) => !userControls[profile.user_id]?.blocked),
+    [profiles, userControls]
+  );
+
   const currentProfile = useMemo(() => {
-    if (!profiles.length) return null;
-    return profiles[stackIndex % profiles.length] ?? null;
-  }, [profiles, stackIndex]);
+    if (!visiblePartnerProfiles.length) return null;
+    return visiblePartnerProfiles[stackIndex % visiblePartnerProfiles.length] ?? null;
+  }, [visiblePartnerProfiles, stackIndex]);
 
   const canUseDating = useMemo(() => {
     if (!player) return false;
@@ -819,9 +871,11 @@ export default function PartnerScenePage() {
 
   const activeMatch = matches.find((match) => match.id === activeMatchId) || null;
   const activeMatchProfile = activeMatch ? profileMap[activeMatch.user_a === player?.id ? activeMatch.user_b : activeMatch.user_a] : null;
+  const activeMatchControls = activeMatchProfile ? userControls[activeMatchProfile.user_id] || {} : {};
   const activeMessages = activeMatch ? messages.filter((message) => message.match_id === activeMatch.id) : [];
   const ownDatingProfile = player ? profileMap[player.id] : null;
-  const distanceForProfile = (profile?: DatingProfile | null) => distanceLabelBetweenProfiles(ownDatingProfile, profile);
+  const distanceForProfile = (profile?: DatingProfile | null) =>
+    safetySettings.hideDistance ? null : distanceLabelBetweenProfiles(ownDatingProfile, profile);
   const unreadCounts = useMemo(() => {
     if (!player) return {};
 
@@ -834,10 +888,15 @@ export default function PartnerScenePage() {
     }, {});
   }, [messages, player]);
   const totalUnreadCount = Object.values(unreadCounts).reduce((total, count) => total + count, 0);
-  const exploreProfiles = profiles.slice(0, 8);
+  const visibleMatches = matches.filter((match) => {
+    const partnerId = match.user_a === player?.id ? match.user_b : match.user_a;
+    return !userControls[partnerId]?.blocked;
+  });
+  const exploreProfiles = visiblePartnerProfiles.slice(0, 8);
 
   const markMatchAsRead = (matchId: string) => {
     if (!player) return;
+    if (!safetySettings.sendReadReceipts) return;
 
     const hasUnread = messages.some((message) => message.match_id === matchId && message.sender_id !== player.id && !message.read_at);
     const readAt = new Date().toISOString();
@@ -1188,6 +1247,7 @@ export default function PartnerScenePage() {
             safetySettings.messageNotifications &&
             latestMessage?.sender_id !== player.id &&
             latestMessage &&
+            (!latestProfile || (!userControls[latestProfile.user_id]?.muted && !userControls[latestProfile.user_id]?.blocked)) &&
             !notifiedMessageIdsRef.current.has(latestMessage.id)
           ) {
             notifiedMessageIdsRef.current.add(latestMessage.id);
@@ -1205,9 +1265,9 @@ export default function PartnerScenePage() {
     }
 
     window.localStorage.setItem(summaryKey(player.id), JSON.stringify(summary));
-  }, [likedMeIds.length, matches, messages, player, profileMap, safetySettings.messageNotifications, safetySettings.quietMode]);
+  }, [likedMeIds.length, matches, messages, player, profileMap, safetySettings.messageNotifications, safetySettings.quietMode, userControls]);
 
-  const advanceStack = () => setStackIndex((value) => (profiles.length ? (value + 1) % profiles.length : 0));
+  const advanceStack = () => setStackIndex((value) => (visiblePartnerProfiles.length ? (value + 1) % visiblePartnerProfiles.length : 0));
 
   const passProfile = () => {
     if (!currentProfile) return;
@@ -1570,11 +1630,11 @@ export default function PartnerScenePage() {
             <p className="text-sm uppercase tracking-[0.3em] text-white/50">Likes</p>
             <h2 className="mt-2 text-3xl font-bold">Your activity</h2>
             <div className="mt-5 grid gap-3">
-              <StatBox label="Matches" value={matches.length} />
+              <StatBox label="Matches" value={visibleMatches.length} />
               <StatBox label="People who liked you" value={likedMeIds.length} />
               <StatBox label="People you liked" value={likedIds.length} />
             </div>
-            <div className="mt-6 space-y-3">{matches.map((match) => {
+            <div className="mt-6 space-y-3">{visibleMatches.map((match) => {
               const profile = profileMap[match.user_a === player?.id ? match.user_b : match.user_a];
               return <MatchRowButton key={match.id} match={match} playerId={player?.id || ""} profile={profile} distanceLabel={distanceForProfile(profile)} onOpen={() => { markMatchAsRead(match.id); setActiveMatchId(match.id); setActiveTab("chat"); }} />;
             })}</div>
@@ -1611,14 +1671,25 @@ export default function PartnerScenePage() {
                 presence={presenceMap[activeMatchProfile.user_id]}
                 distanceLabel={distanceForProfile(activeMatchProfile)}
                 safetySettings={safetySettings}
+                userControls={activeMatchControls}
                 isTyping={Boolean(typingByMatch[activeMatch.id])}
                 onImageSend={(file) => void sendChatImage(file)}
                 onVoiceSend={(blob) => void sendVoiceNote(blob)}
                 onStartCall={(kind) => void startCall(kind)}
+                onToggleMute={() => updateUserControls(activeMatchProfile.user_id, { muted: !activeMatchControls.muted })}
+                onBlock={() => {
+                  updateUserControls(activeMatchProfile.user_id, { blocked: true });
+                  setActiveMatchId("");
+                }}
+                onReport={() => {
+                  const reportNote = window.prompt("Describe what happened. This report is saved on this device for now.");
+                  if (reportNote === null) return;
+                  updateUserControls(activeMatchProfile.user_id, { reported: true, reportNote: reportNote.trim() });
+                }}
               />
-            ) : matches.length ? (
+            ) : visibleMatches.length ? (
               <div className="mt-5 space-y-3">
-                {matches.map((match) => {
+                {visibleMatches.map((match) => {
                   const profile = profileMap[match.user_a === player?.id ? match.user_b : match.user_a];
                   return (
                     <ChatListButton
@@ -1656,7 +1727,7 @@ export default function PartnerScenePage() {
                 <span className="rounded-full bg-white/10 px-3 py-2">Age {player?.age ?? 18}</span>
                 <span className="rounded-full bg-white/10 px-3 py-2">{moneyLabel} R{playerMoney}</span>
                 <span className="rounded-full bg-white/10 px-3 py-2">Happiness {player?.happiness ?? 0}</span>
-                <span className="rounded-full bg-white/10 px-3 py-2">{matches.length} Match{matches.length === 1 ? "" : "es"}</span>
+                <span className="rounded-full bg-white/10 px-3 py-2">{visibleMatches.length} Match{visibleMatches.length === 1 ? "" : "es"}</span>
               </div>
               <p className="mt-4 text-sm leading-7 text-white/70">{status}</p>
             </div>
@@ -1925,6 +1996,24 @@ function SafetySettingsPanel({
           checked={settings.chatSearch}
           onChange={(value) => onChange({ chatSearch: value })}
         />
+        <SafetyToggle
+          label="Hide my distance"
+          description="Do not show KM distance on cards, match rows, or chat headers."
+          checked={settings.hideDistance}
+          onChange={(value) => onChange({ hideDistance: value })}
+        />
+        <SafetyToggle
+          label="Hide online status"
+          description="Appear offline and stop sending live presence while enabled."
+          checked={settings.hideOnlineStatus}
+          onChange={(value) => onChange({ hideOnlineStatus: value })}
+        />
+        <SafetyToggle
+          label="Send read receipts"
+          description="Let matches see green ticks after you open their messages."
+          checked={settings.sendReadReceipts}
+          onChange={(value) => onChange({ sendReadReceipts: value })}
+        />
       </div>
     </div>
   );
@@ -2035,10 +2124,14 @@ function ChatPanel({
   presence,
   distanceLabel,
   safetySettings,
+  userControls,
   isTyping,
   onImageSend,
   onVoiceSend,
   onStartCall,
+  onToggleMute,
+  onBlock,
+  onReport,
 }: {
   activeMatchProfile: DatingProfile;
   activeMessages: MessageRow[];
@@ -2053,10 +2146,14 @@ function ChatPanel({
   presence?: PlayerPresence;
   distanceLabel: string | null;
   safetySettings: PartnerSafetySettings;
+  userControls: PartnerUserControls;
   isTyping: boolean;
   onImageSend: (file: File) => void;
   onVoiceSend: (blob: Blob) => void;
   onStartCall: (kind: "voice" | "video") => void;
+  onToggleMute: () => void;
+  onBlock: () => void;
+  onReport: () => void;
 }) {
   const isOnline = Boolean(presence?.is_online);
   const presenceLabel = isTyping ? "Typing..." : isOnline ? "Online" : formatLastSeen(presence?.last_seen_at);
@@ -2161,6 +2258,23 @@ function ChatPanel({
         </div>
 
         <div className="flex shrink-0 items-center gap-1 text-sky-300">
+          <button
+            onClick={onToggleMute}
+            className={`hidden rounded-full px-3 py-2 text-xs font-bold transition sm:block ${userControls.muted ? "bg-amber-400 text-slate-950" : "hover:bg-white/10"}`}
+            aria-label={userControls.muted ? "Unmute this match" : "Mute this match"}
+          >
+            {userControls.muted ? "Muted" : "Mute"}
+          </button>
+          <button
+            onClick={onReport}
+            className={`hidden rounded-full px-3 py-2 text-xs font-bold transition sm:block ${userControls.reported ? "bg-rose-500 text-white" : "hover:bg-white/10"}`}
+            aria-label="Report this match"
+          >
+            {userControls.reported ? "Reported" : "Report"}
+          </button>
+          <button onClick={onBlock} className="hidden rounded-full px-3 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-500/15 sm:block" aria-label="Block this match">
+            Block
+          </button>
           <button onClick={() => onStartCall("voice")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10" aria-label="Start voice call">
             <PhoneIcon />
           </button>
@@ -2171,6 +2285,18 @@ function ChatPanel({
             -
           </button>
         </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 border-b border-white/10 bg-[#0b1728] px-4 py-2 text-xs font-bold sm:hidden">
+        <button onClick={onToggleMute} className={`rounded-full px-3 py-2 ${userControls.muted ? "bg-amber-400 text-slate-950" : "bg-white/10 text-white"}`}>
+          {userControls.muted ? "Muted" : "Mute"}
+        </button>
+        <button onClick={onReport} className={`rounded-full px-3 py-2 ${userControls.reported ? "bg-rose-500 text-white" : "bg-white/10 text-white"}`}>
+          {userControls.reported ? "Reported" : "Report"}
+        </button>
+        <button onClick={onBlock} className="rounded-full bg-rose-500/15 px-3 py-2 text-rose-100">
+          Block
+        </button>
       </div>
 
       {safetySettings.chatSearch ? (
