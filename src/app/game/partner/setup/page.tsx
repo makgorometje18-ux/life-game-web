@@ -38,6 +38,7 @@ type BrowserFaceDetector = {
 declare global {
   interface Window {
     FaceDetector?: new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => BrowserFaceDetector;
+    webkitAudioContext?: typeof AudioContext;
   }
 }
 
@@ -390,6 +391,7 @@ export default function PartnerSetupPage() {
   const previousFaceCenterRef = useRef<{ x: number; y: number } | null>(null);
   const baselineMetricsRef = useRef<LivenessMetrics | null>(null);
   const latestMetricsRef = useRef<LivenessMetrics | null>(null);
+  const scanAudioContextRef = useRef<AudioContext | null>(null);
   const livenessStatusRef = useRef<LivenessStatus>("idle");
   const livenessStepIndexRef = useRef(0);
 
@@ -767,7 +769,93 @@ export default function PartnerSetupPage() {
     }
   };
 
-  useEffect(() => () => stopLivenessCamera(), []);
+  const closeScanAudio = () => {
+    scanAudioContextRef.current?.close().catch(() => undefined);
+    scanAudioContextRef.current = null;
+  };
+
+  const scanAudioContext = () => {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+
+    if (!scanAudioContextRef.current || scanAudioContextRef.current.state === "closed") {
+      scanAudioContextRef.current = new AudioContextClass();
+    }
+
+    if (scanAudioContextRef.current.state === "suspended") {
+      void scanAudioContextRef.current.resume();
+    }
+
+    return scanAudioContextRef.current;
+  };
+
+  const playScanTone = (kind: "ready" | "step" | "scan" | "lock" | "error") => {
+    if (typeof window === "undefined") return;
+
+    const context = scanAudioContext();
+    if (!context) return;
+
+    const now = context.currentTime;
+    const master = context.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.connect(context.destination);
+
+    const playTone = (frequency: number, start: number, duration: number, volume: number, type: OscillatorType = "sine") => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(volume, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      oscillator.connect(gain);
+      gain.connect(master);
+      oscillator.start(start);
+      oscillator.stop(start + duration + 0.03);
+    };
+
+    if (kind === "ready") {
+      master.gain.exponentialRampToValueAtTime(0.28, now + 0.02);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+      playTone(540, now, 0.1, 0.14, "triangle");
+      playTone(810, now + 0.11, 0.16, 0.18, "sine");
+      return;
+    }
+
+    if (kind === "step") {
+      master.gain.exponentialRampToValueAtTime(0.22, now + 0.01);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      playTone(920, now, 0.08, 0.15, "square");
+      playTone(1220, now + 0.06, 0.1, 0.11, "triangle");
+      return;
+    }
+
+    if (kind === "scan") {
+      master.gain.exponentialRampToValueAtTime(0.18, now + 0.01);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      playTone(720, now, 0.08, 0.1, "sawtooth");
+      return;
+    }
+
+    if (kind === "lock") {
+      master.gain.exponentialRampToValueAtTime(0.28, now + 0.02);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + 0.72);
+      playTone(420, now, 0.11, 0.13, "triangle");
+      playTone(630, now + 0.13, 0.12, 0.16, "triangle");
+      playTone(960, now + 0.28, 0.22, 0.2, "sine");
+      return;
+    }
+
+    master.gain.exponentialRampToValueAtTime(0.18, now + 0.01);
+    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    playTone(220, now, 0.14, 0.12, "sawtooth");
+    playTone(180, now + 0.16, 0.16, 0.1, "sawtooth");
+  };
+
+  useEffect(() => () => {
+    stopLivenessCamera();
+    closeScanAudio();
+  }, []);
 
   const resetLivenessCheck = () => {
     setLivenessStatus("idle");
@@ -891,9 +979,11 @@ export default function PartnerSetupPage() {
 
   const completeLivenessStep = (stepId: LivenessStepId) => {
     const currentStepIndex = livenessStepIndexRef.current;
+    playScanTone("step");
     setCompletedLivenessSteps((current) => (current.includes(stepId) ? current : [...current, stepId]));
 
     if (currentStepIndex >= livenessSteps.length - 1) {
+      playScanTone("scan");
       setLivenessStatus("scanning");
       livenessStatusRef.current = "scanning";
       setScanProgress(12);
@@ -904,6 +994,7 @@ export default function PartnerSetupPage() {
       const scanTimer = window.setInterval(() => {
         progress = Math.min(100, progress + 22);
         setScanProgress(progress);
+        playScanTone(progress >= 100 ? "lock" : "scan");
 
         if (progress >= 100) {
           window.clearInterval(scanTimer);
@@ -1000,6 +1091,7 @@ export default function PartnerSetupPage() {
     setShowLivenessCheck(true);
     setLivenessStatus("starting");
     livenessStatusRef.current = "starting";
+    playScanTone("ready");
     setError("");
     setMessage("");
 
@@ -1034,6 +1126,7 @@ export default function PartnerSetupPage() {
       livenessTimerRef.current = window.setInterval(() => void runLivenessTick(), 320);
     } catch (cameraAccessError) {
       console.error("Live selfie camera failed", cameraAccessError);
+      playScanTone("error");
       setLivenessStatus("idle");
       livenessStatusRef.current = "idle";
       setCameraError("Camera permission was blocked. Allow camera access and try again.");
@@ -1573,65 +1666,75 @@ export default function PartnerSetupPage() {
       </div>
 
       {showLivenessCheck ? (
-        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/82 px-3 pb-5 backdrop-blur sm:items-center sm:pb-0 lg:p-6">
-          <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#07111f] text-white shadow-[0_30px_100px_rgba(0,0,0,0.7)] sm:max-h-[calc(100dvh-2rem)] lg:max-h-[calc(100dvh-3rem)] lg:max-w-5xl lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:rounded-[2rem]">
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4 lg:col-span-2 lg:py-3">
+        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-[#020611]/92 px-3 pb-4 backdrop-blur-md sm:items-center sm:pb-0 lg:p-6">
+          <div className="flex max-h-[calc(100dvh-1.25rem)] w-full max-w-md flex-col overflow-hidden rounded-[1.5rem] border border-emerald-200/15 bg-[#06101f] text-white shadow-[0_30px_100px_rgba(0,0,0,0.72),0_0_70px_rgba(16,185,129,0.16)] sm:max-h-[calc(100dvh-2rem)] lg:max-h-[calc(100dvh-3rem)] lg:max-w-5xl lg:grid lg:grid-cols-[minmax(0,1fr)_23rem] lg:rounded-[2rem]">
+            <div className="flex items-start justify-between gap-4 border-b border-emerald-200/10 bg-[#081424] px-5 py-4 lg:col-span-2 lg:py-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-sky-200/70">Live selfie verification</p>
-                <h2 className="mt-2 text-2xl font-black">
+                <p className="text-xs uppercase tracking-[0.3em] text-emerald-200/70">Biometric security gate</p>
+                <h2 className="mt-2 text-2xl font-black tracking-tight">
                   {livenessStatus === "verified"
-                    ? "Verified"
+                    ? "Identity locked"
                     : livenessStatus === "scanning"
-                      ? "Scanning..."
+                      ? "Encrypting scan..."
                       : livenessSteps[livenessStepIndex]?.title || "Camera check"}
                 </h2>
+                <p className="mt-1 text-xs font-semibold text-white/45">Face match, motion challenge, and liveness signal</p>
               </div>
               <button
                 type="button"
                 onClick={closeLivenessCheck}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg font-black text-white"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/10 text-lg font-black text-white transition hover:bg-white/15"
                 aria-label="Close live selfie verification"
               >
                 x
               </button>
             </div>
 
-            <div className="relative min-h-0 bg-black lg:flex lg:items-center lg:justify-center">
+            <div className="relative min-h-0 overflow-hidden bg-black lg:flex lg:items-center lg:justify-center">
               <video ref={livenessVideoRef} autoPlay muted playsInline className="aspect-[3/4] max-h-[54dvh] w-full bg-black object-cover sm:max-h-[60dvh] lg:h-full lg:max-h-[calc(100dvh-10rem)] lg:w-auto lg:max-w-full" />
               <canvas ref={livenessCanvasRef} className="hidden" />
+              <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(6,16,31,0.2),transparent_22%,transparent_70%,rgba(6,16,31,0.6))]" />
+              <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(110,231,183,0.13)_1px,transparent_1px),linear-gradient(90deg,rgba(110,231,183,0.12)_1px,transparent_1px)] [background-size:44px_44px]" />
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(16,185,129,0.18),transparent)]" />
+              <div className={`pointer-events-none absolute inset-x-0 h-1 bg-emerald-300/80 shadow-[0_0_28px_rgba(110,231,183,0.9)] transition-all duration-300 ${livenessStatus === "scanning" || livenessStatus === "verified" ? "top-[72%]" : faceDetected ? "top-[42%]" : "top-[26%]"}`} />
 
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div
-                  className={`h-[56%] w-[62%] rounded-full border-[6px] transition ${
+                  className={`relative h-[52%] w-[58%] rounded-[42%] border-[5px] transition ${
                     livenessStatus === "verified" || livenessStatus === "scanning"
-                      ? "border-emerald-300 shadow-[0_0_0_10px_rgba(16,185,129,0.14),0_0_45px_rgba(16,185,129,0.7)]"
+                      ? "border-emerald-300 shadow-[0_0_0_10px_rgba(16,185,129,0.14),0_0_55px_rgba(16,185,129,0.8),inset_0_0_28px_rgba(16,185,129,0.16)]"
                       : faceDetected
-                        ? "border-emerald-300 shadow-[0_0_0_8px_rgba(16,185,129,0.12),0_0_32px_rgba(16,185,129,0.45)]"
-                        : "border-amber-300 shadow-[0_0_0_8px_rgba(251,191,36,0.1)]"
+                        ? "border-emerald-300 shadow-[0_0_0_8px_rgba(16,185,129,0.12),0_0_36px_rgba(16,185,129,0.5),inset_0_0_22px_rgba(16,185,129,0.12)]"
+                        : "border-amber-300 shadow-[0_0_0_8px_rgba(251,191,36,0.1),0_0_28px_rgba(251,191,36,0.32)]"
                   }`}
-                />
+                >
+                  <span className="absolute -left-2 -top-2 h-8 w-8 border-l-2 border-t-2 border-white/70" />
+                  <span className="absolute -right-2 -top-2 h-8 w-8 border-r-2 border-t-2 border-white/70" />
+                  <span className="absolute -bottom-2 -left-2 h-8 w-8 border-b-2 border-l-2 border-white/70" />
+                  <span className="absolute -bottom-2 -right-2 h-8 w-8 border-b-2 border-r-2 border-white/70" />
+                </div>
               </div>
 
-              <div className="pointer-events-none absolute inset-x-4 top-4 rounded-2xl border border-white/10 bg-black/55 px-4 py-3 text-center text-sm font-bold text-white backdrop-blur">
+              <div className="pointer-events-none absolute inset-x-4 top-4 rounded-2xl border border-emerald-200/15 bg-black/62 px-4 py-3 text-center text-sm font-bold text-white shadow-[0_16px_40px_rgba(0,0,0,0.35)] backdrop-blur">
                 {livenessStatus === "starting"
-                  ? "Opening camera..."
+                  ? "Initializing secure camera..."
                   : livenessStatus === "scanning"
-                    ? `Verification scan ${scanProgress}%`
+                    ? `Encrypted liveness scan ${scanProgress}%`
                     : livenessStatus === "verified"
-                      ? "Green scan complete"
+                      ? "Identity lock complete"
                       : faceDetected
                         ? livenessSteps[livenessStepIndex]?.detail
                         : "Put your face inside the circle"}
               </div>
 
               {livenessStatus === "scanning" ? (
-                <div className="absolute inset-x-6 bottom-6 h-3 overflow-hidden rounded-full bg-white/15">
-                  <div className="h-full rounded-full bg-emerald-300 transition-all" style={{ width: `${scanProgress}%` }} />
+                <div className="absolute inset-x-6 bottom-6 overflow-hidden rounded-full border border-emerald-200/20 bg-black/45 p-1 backdrop-blur">
+                  <div className="h-2 rounded-full bg-[linear-gradient(90deg,#67e8f9,#6ee7b7,#d9f99d)] transition-all shadow-[0_0_22px_rgba(110,231,183,0.75)]" style={{ width: `${scanProgress}%` }} />
                 </div>
               ) : null}
             </div>
 
-            <div className="min-h-0 overflow-y-auto px-5 py-5 lg:border-l lg:border-white/10 lg:py-4">
+            <div className="min-h-0 overflow-y-auto bg-[#081424] px-5 py-5 lg:border-l lg:border-emerald-200/10 lg:py-4">
               <div className="grid grid-cols-6 gap-2">
                 {livenessSteps.map((item) => {
                   const done = completedLivenessSteps.includes(item.id) || livenessStatus === "verified";
@@ -1640,17 +1743,26 @@ export default function PartnerSetupPage() {
                   return (
                     <div
                       key={item.id}
-                      className={`h-2 rounded-full ${done ? "bg-emerald-300" : active ? "bg-sky-300" : "bg-white/15"}`}
+                      className={`h-2 rounded-full transition ${done ? "bg-emerald-300 shadow-[0_0_12px_rgba(110,231,183,0.75)]" : active ? "bg-sky-300 shadow-[0_0_12px_rgba(125,211,252,0.65)]" : "bg-white/15"}`}
                       title={item.title}
                     />
                   );
                 })}
               </div>
 
-              <div className="mt-4 grid gap-2 text-sm text-white/72">
-                <p>Face detector: {faceDetected ? "face found" : "searching"}</p>
-                <p>Landmarks: {landmarkModelReady ? "MediaPipe active" : "loading or fallback"}</p>
-                <p>Actions: mouth, blink, left, right, up and down.</p>
+              <div className="mt-4 grid gap-3 text-sm text-white/72">
+                <div className="rounded-2xl border border-white/10 bg-black/24 p-3">
+                  <span className="block text-xs uppercase tracking-[0.2em] text-white/38">Detector</span>
+                  <span className="mt-1 block font-bold text-white">{faceDetected ? "Face signature locked" : "Searching for face signature"}</span>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/24 p-3">
+                  <span className="block text-xs uppercase tracking-[0.2em] text-white/38">Landmarks</span>
+                  <span className="mt-1 block font-bold text-white">{landmarkModelReady ? "MediaPipe precision active" : "Loading secure fallback"}</span>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/24 p-3">
+                  <span className="block text-xs uppercase tracking-[0.2em] text-white/38">Challenge set</span>
+                  <span className="mt-1 block leading-6 text-white/78">Mouth, blink, left, right, up and down.</span>
+                </div>
                 {!landmarkModelReady && typeof window !== "undefined" && !window.FaceDetector ? <p>This browser uses guided movement checks because built-in face detection is unavailable.</p> : null}
                 {cameraError ? <p className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-rose-100">{cameraError}</p> : null}
               </div>
@@ -1658,9 +1770,9 @@ export default function PartnerSetupPage() {
               <button
                 type="button"
                 onClick={livenessStatus === "verified" ? closeLivenessCheck : () => void startLivenessCheck()}
-                className="mt-5 w-full rounded-full bg-white px-5 py-4 text-base font-black text-stone-950"
+                className="mt-5 w-full rounded-full bg-[linear-gradient(135deg,#ecfeff,#d9f99d)] px-5 py-4 text-base font-black text-slate-950 shadow-[0_18px_35px_rgba(34,197,94,0.22)] transition hover:brightness-105"
               >
-                {livenessStatus === "verified" ? "Use This Selfie" : "Restart Scan"}
+                {livenessStatus === "verified" ? "Use Verified Selfie" : "Restart Secure Scan"}
               </button>
             </div>
           </div>
