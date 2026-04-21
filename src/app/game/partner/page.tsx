@@ -2317,6 +2317,10 @@ function ChatPanel({
   const [messageSearch, setMessageSearch] = useState("");
   const [replyingTo, setReplyingTo] = useState<ChatReplyReference | null>(null);
   const [openActionsFor, setOpenActionsFor] = useState<string | null>(null);
+  const [showConversationMenu, setShowConversationMenu] = useState(false);
+  const [forceSearchOpen, setForceSearchOpen] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [menuNotice, setMenuNotice] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
@@ -2346,6 +2350,11 @@ function ChatPanel({
     onSend(replyingTo ? encodeChatReply(replyingTo, trimmedDraft) : trimmedDraft, true);
     setReplyingTo(null);
     setOpenActionsFor(null);
+  };
+
+  const closeMenuWithNotice = (notice: string) => {
+    setMenuNotice(notice);
+    setShowConversationMenu(false);
   };
 
   const jumpToLatestMessage = () => {
@@ -2411,7 +2420,7 @@ function ChatPanel({
 
   return (
     <div className="flex h-dvh min-h-0 w-full flex-col bg-[#071323] text-white lg:h-[calc(100dvh-3rem)] lg:max-w-6xl lg:overflow-hidden lg:rounded-[1.5rem] lg:border lg:border-white/10 lg:shadow-[0_28px_90px_rgba(0,0,0,0.45)]">
-      <div className="shrink-0 flex items-center gap-3 border-b border-white/10 bg-[#0b1728] px-4 py-3 shadow-sm">
+      <div className="relative shrink-0 flex items-center gap-3 border-b border-white/10 bg-[#0b1728] px-4 py-3 shadow-sm">
         <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-black text-white transition hover:bg-white/15" aria-label="Back to chats">
           &lt;
         </button>
@@ -2433,48 +2442,91 @@ function ChatPanel({
         </div>
 
         <div className="flex shrink-0 items-center gap-1 text-sky-300">
-          <button
-            onClick={onToggleMute}
-            className={`hidden rounded-full px-3 py-2 text-xs font-bold transition sm:block ${userControls.muted ? "bg-amber-400 text-slate-950" : "hover:bg-white/10"}`}
-            aria-label={userControls.muted ? "Unmute this match" : "Mute this match"}
-          >
-            {userControls.muted ? "Muted" : "Mute"}
-          </button>
-          <button
-            onClick={onReport}
-            className={`hidden rounded-full px-3 py-2 text-xs font-bold transition sm:block ${userControls.reported ? "bg-rose-500 text-white" : "hover:bg-white/10"}`}
-            aria-label="Report this match"
-          >
-            {userControls.reported ? "Reported" : "Report"}
-          </button>
-          <button onClick={onBlock} className={`hidden rounded-full px-3 py-2 text-xs font-bold transition sm:block ${isBlocked ? "bg-emerald-500 text-white hover:bg-emerald-400" : "text-rose-200 hover:bg-rose-500/15"}`} aria-label={isBlocked ? "Unblock this match" : "Block this match"}>
-            {isBlocked ? "Unblock" : "Block"}
-          </button>
           <button onClick={() => onStartCall("voice")} disabled={communicationBlocked} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10 disabled:opacity-40" aria-label="Start voice call">
             <PhoneIcon />
           </button>
           <button onClick={() => onStartCall("video")} disabled={communicationBlocked} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10 disabled:opacity-40" aria-label="Start video call">
             <VideoIcon />
           </button>
-          <button className="hidden h-10 w-10 items-center justify-center rounded-full text-2xl font-black transition hover:bg-white/10 sm:flex" aria-label="Minimize chat">
-            -
+          <button
+            type="button"
+            onClick={() => setShowConversationMenu((current) => !current)}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-2xl font-black leading-none text-white transition hover:bg-white/10"
+            aria-label="Conversation options"
+          >
+            ⋮
           </button>
         </div>
+
+        {showConversationMenu ? (
+          <div className="absolute right-3 top-16 z-50 w-64 overflow-hidden rounded-2xl border border-slate-200/80 bg-white py-2 text-sm font-medium text-slate-800 shadow-[0_22px_70px_rgba(0,0,0,0.34)]">
+            <button type="button" onClick={() => { setShowConversationMenu(false); onStartCall("voice"); }} disabled={communicationBlocked} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100 disabled:opacity-45">
+              <PhoneIcon className="h-4 w-4" />
+              <span>Call</span>
+            </button>
+            <button type="button" onClick={() => closeMenuWithNotice(`${activeMatchProfile.display_name}, ${activeMatchProfile.age} - ${distanceLabel || activeMatchProfile.location_label || activeMatchProfile.city}`)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">i</span>
+              <span>Contact info</span>
+            </button>
+            <button type="button" onClick={() => { setForceSearchOpen(true); setShowConversationMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">⌕</span>
+              <span>Search</span>
+            </button>
+            <button type="button" onClick={() => { setSelectionMode((current) => !current); setShowConversationMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">☑</span>
+              <span>{selectionMode ? "Cancel selection" : "Select messages"}</span>
+            </button>
+            <button type="button" onClick={() => { onToggleMute(); setShowConversationMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">⌁</span>
+              <span>{userControls.muted ? "Unmute notifications" : "Mute notifications"}</span>
+            </button>
+            <button type="button" onClick={() => closeMenuWithNotice("Disappearing messages will be added soon.")} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">◌</span>
+              <span>Disappearing messages</span>
+            </button>
+            <button type="button" onClick={() => closeMenuWithNotice(`${activeMatchProfile.display_name} added to favourites.`)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">♡</span>
+              <span>Add to favourites</span>
+            </button>
+            <button type="button" onClick={() => closeMenuWithNotice(`${activeMatchProfile.display_name} added to your list.`)} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">▣</span>
+              <span>Add to list</span>
+            </button>
+            <button type="button" onClick={() => { setShowConversationMenu(false); onBack(); }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">×</span>
+              <span>Close chat</span>
+            </button>
+            <div className="my-1 border-t border-slate-200"></div>
+            <button type="button" onClick={() => { onReport(); setShowConversationMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">!</span>
+              <span>{userControls.reported ? "Reported" : "Report"}</span>
+            </button>
+            <button type="button" onClick={() => { onBlock(); setShowConversationMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 text-left text-rose-700 hover:bg-rose-50">
+              <span className="w-4 text-center">⊘</span>
+              <span>{isBlocked ? "Unblock" : "Block"}</span>
+            </button>
+            <button type="button" onClick={() => { setMessageSearch(""); closeMenuWithNotice("Search text cleared. Messages stay saved."); }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">−</span>
+              <span>Clear chat</span>
+            </button>
+            <button type="button" onClick={() => closeMenuWithNotice("Deleting chats permanently needs a database delete policy. I kept the chat safe for now.")} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100">
+              <span className="w-4 text-center">⌧</span>
+              <span>Delete chat</span>
+            </button>
+          </div>
+        ) : null}
       </div>
 
-      <div className="grid grid-cols-3 gap-2 border-b border-white/10 bg-[#0b1728] px-4 py-2 text-xs font-bold sm:hidden">
-        <button onClick={onToggleMute} className={`rounded-full px-3 py-2 ${userControls.muted ? "bg-amber-400 text-slate-950" : "bg-white/10 text-white"}`}>
-          {userControls.muted ? "Muted" : "Mute"}
-        </button>
-        <button onClick={onReport} className={`rounded-full px-3 py-2 ${userControls.reported ? "bg-rose-500 text-white" : "bg-white/10 text-white"}`}>
-          {userControls.reported ? "Reported" : "Report"}
-        </button>
-        <button onClick={onBlock} className={`rounded-full px-3 py-2 ${isBlocked ? "bg-emerald-500 text-white" : "bg-rose-500/15 text-rose-100"}`}>
-          {isBlocked ? "Unblock" : "Block"}
-        </button>
-      </div>
+      {menuNotice ? (
+        <div className="shrink-0 border-b border-white/10 bg-[#0b1728] px-4 py-2">
+          <div className="flex items-center gap-3 rounded-2xl bg-white/10 px-3 py-2 text-xs font-semibold text-white/76">
+            <span className="min-w-0 flex-1">{menuNotice}</span>
+            <button type="button" onClick={() => setMenuNotice("")} className="font-black text-white/70">x</button>
+          </div>
+        </div>
+      ) : null}
 
-      {safetySettings.chatSearch ? (
+      {safetySettings.chatSearch || forceSearchOpen ? (
         <div className="shrink-0 border-b border-white/10 bg-[#0b1728] px-4 py-3">
           <input
             value={messageSearch}
