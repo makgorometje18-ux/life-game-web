@@ -1734,7 +1734,7 @@ export default function PartnerSetupPage() {
               ) : null}
             </div>
 
-            <div className="min-h-0 overflow-y-auto bg-[#081424] px-5 py-5 lg:border-l lg:border-emerald-200/10 lg:py-4">
+            <div className="min-h-0 bg-[#081424] px-5 py-5 lg:border-l lg:border-emerald-200/10 lg:py-4">
               <div className="grid grid-cols-6 gap-2">
                 {livenessSteps.map((item) => {
                   const done = completedLivenessSteps.includes(item.id) || livenessStatus === "verified";
@@ -1751,19 +1751,6 @@ export default function PartnerSetupPage() {
               </div>
 
               <div className="mt-4 grid gap-3 text-sm text-white/72">
-                <div className="rounded-2xl border border-white/10 bg-black/24 p-3">
-                  <span className="block text-xs uppercase tracking-[0.2em] text-white/38">Detector</span>
-                  <span className="mt-1 block font-bold text-white">{faceDetected ? "Face signature locked" : "Searching for face signature"}</span>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/24 p-3">
-                  <span className="block text-xs uppercase tracking-[0.2em] text-white/38">Landmarks</span>
-                  <span className="mt-1 block font-bold text-white">{landmarkModelReady ? "MediaPipe precision active" : "Loading secure fallback"}</span>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/24 p-3">
-                  <span className="block text-xs uppercase tracking-[0.2em] text-white/38">Challenge set</span>
-                  <span className="mt-1 block leading-6 text-white/78">Mouth, blink, left, right, up and down.</span>
-                </div>
-                {!landmarkModelReady && typeof window !== "undefined" && !window.FaceDetector ? <p>This browser uses guided movement checks because built-in face detection is unavailable.</p> : null}
                 {cameraError ? <p className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-rose-100">{cameraError}</p> : null}
               </div>
 
