@@ -73,6 +73,7 @@ type MessageRow = {
 };
 
 type DatingBlockRow = {
+  blocker_id: string;
   blocked_user_id: string;
 };
 
@@ -96,6 +97,7 @@ type PartnerSafetySettings = {
 type PartnerUserControls = {
   muted?: boolean;
   blocked?: boolean;
+  blockedBy?: boolean;
   reported?: boolean;
   reportNote?: string;
 };
@@ -474,8 +476,8 @@ export default function PartnerScenePage() {
 
       const { data: blockRows, error: blockError } = await supabase
         .from("dating_blocks")
-        .select("blocked_user_id")
-        .eq("blocker_id", user.id);
+        .select("blocker_id, blocked_user_id")
+        .or(`blocker_id.eq.${user.id},blocked_user_id.eq.${user.id}`);
       const { data: reportRows, error: reportError } = await supabase
         .from("dating_reports")
         .select("reported_user_id, reason")
@@ -541,8 +543,13 @@ export default function PartnerScenePage() {
       }
 
       const nextLikedIds = (likesMade || []).map((row) => row.liked_user_id);
+      const remoteBlockControls = ((blockRows || []) as DatingBlockRow[]).map((row) =>
+        row.blocker_id === user.id
+          ? ([row.blocked_user_id, { blocked: true }] as const)
+          : ([row.blocker_id, { blockedBy: true }] as const)
+      );
       const remoteControls = [
-        ...(((blockRows || []) as DatingBlockRow[]).map((row) => [row.blocked_user_id, { blocked: true }] as const)),
+        ...remoteBlockControls,
         ...(((reportRows || []) as DatingReportRow[]).map((row) => [
           row.reported_user_id,
           { reported: true, reportNote: row.reason || "" },
@@ -953,7 +960,7 @@ export default function PartnerScenePage() {
   }, [matches.length, player]);
 
   const visiblePartnerProfiles = useMemo(
-    () => profiles.filter((profile) => !userControls[profile.user_id]?.blocked),
+    () => profiles.filter((profile) => !userControls[profile.user_id]?.blocked && !userControls[profile.user_id]?.blockedBy),
     [profiles, userControls]
   );
 
@@ -978,14 +985,15 @@ export default function PartnerScenePage() {
     if (!player) return {};
 
     return messages.reduce<Record<string, number>>((accumulator, message) => {
-      if (message.sender_id !== player.id && !message.read_at) {
+      if (message.sender_id !== player.id && !message.read_at && !userControls[message.sender_id]?.blocked) {
         accumulator[message.match_id] = (accumulator[message.match_id] || 0) + 1;
       }
 
       return accumulator;
     }, {});
-  }, [messages, player]);
+  }, [messages, player, userControls]);
   const totalUnreadCount = Object.values(unreadCounts).reduce((total, count) => total + count, 0);
+  const chatMatches = matches;
   const visibleMatches = matches.filter((match) => {
     const partnerId = match.user_a === player?.id ? match.user_b : match.user_a;
     return !userControls[partnerId]?.blocked;
@@ -1126,6 +1134,14 @@ export default function PartnerScenePage() {
 
   const startCall = async (kind: CallKind) => {
     if (!player || !activeMatch || !activeMatchProfile) return;
+    if (userControls[activeMatchProfile.user_id]?.blocked || userControls[activeMatchProfile.user_id]?.blockedBy) {
+      setError(
+        userControls[activeMatchProfile.user_id]?.blocked
+          ? `Unblock ${activeMatchProfile.display_name} before starting a call.`
+          : `You cannot call ${activeMatchProfile.display_name} right now.`
+      );
+      return;
+    }
 
     try {
       const stream = await getCallStream(kind);
@@ -1449,6 +1465,14 @@ export default function PartnerScenePage() {
   const sendMessage = async (quickBody?: string, clearDraftOverride?: boolean) => {
     const body = (quickBody || chatDraft).trim();
     if (!player || !activeMatch || !body) return;
+    if (activeMatchProfile && (userControls[activeMatchProfile.user_id]?.blocked || userControls[activeMatchProfile.user_id]?.blockedBy)) {
+      setError(
+        userControls[activeMatchProfile.user_id]?.blocked
+          ? `Unblock ${activeMatchProfile.display_name} before sending a message.`
+          : `You cannot message ${activeMatchProfile.display_name} right now.`
+      );
+      return;
+    }
     setSaving(true);
     setError("");
     const tempId = `temp-${Date.now()}`;
@@ -1511,6 +1535,14 @@ export default function PartnerScenePage() {
 
   const sendChatImage = async (file: File) => {
     if (!player || !activeMatch || !file.type.startsWith("image/")) return;
+    if (activeMatchProfile && (userControls[activeMatchProfile.user_id]?.blocked || userControls[activeMatchProfile.user_id]?.blockedBy)) {
+      setError(
+        userControls[activeMatchProfile.user_id]?.blocked
+          ? `Unblock ${activeMatchProfile.display_name} before sending a picture.`
+          : `You cannot send ${activeMatchProfile.display_name} a picture right now.`
+      );
+      return;
+    }
     setSaving(true);
     setError("");
 
@@ -1556,6 +1588,14 @@ export default function PartnerScenePage() {
 
   const sendVoiceNote = async (blob: Blob) => {
     if (!player || !activeMatch || !blob.size) return;
+    if (activeMatchProfile && (userControls[activeMatchProfile.user_id]?.blocked || userControls[activeMatchProfile.user_id]?.blockedBy)) {
+      setError(
+        userControls[activeMatchProfile.user_id]?.blocked
+          ? `Unblock ${activeMatchProfile.display_name} before sending a voice note.`
+          : `You cannot send ${activeMatchProfile.display_name} a voice note right now.`
+      );
+      return;
+    }
     setSaving(true);
     setError("");
 
@@ -1776,8 +1816,7 @@ export default function PartnerScenePage() {
                 onStartCall={(kind) => void startCall(kind)}
                 onToggleMute={() => updateUserControls(activeMatchProfile.user_id, { muted: !activeMatchControls.muted })}
                 onBlock={() => {
-                  void saveBlockControl(activeMatchProfile.user_id, true);
-                  setActiveMatchId("");
+                  void saveBlockControl(activeMatchProfile.user_id, !activeMatchControls.blocked);
                 }}
                 onReport={() => {
                   const reportNote = window.prompt("Describe what happened. This report is saved on this device for now.");
@@ -1785,10 +1824,11 @@ export default function PartnerScenePage() {
                   void saveReportControl(activeMatchProfile.user_id, reportNote.trim());
                 }}
               />
-            ) : visibleMatches.length ? (
+            ) : chatMatches.length ? (
               <div className="mt-5 space-y-3">
-                {visibleMatches.map((match) => {
+                {chatMatches.map((match) => {
                   const profile = profileMap[match.user_a === player?.id ? match.user_b : match.user_a];
+                  const partnerId = match.user_a === player?.id ? match.user_b : match.user_a;
                   return (
                     <ChatListButton
                       key={match.id}
@@ -1797,6 +1837,8 @@ export default function PartnerScenePage() {
                       distanceLabel={distanceForProfile(profile)}
                       unreadCount={unreadCounts[match.id] || 0}
                       presence={profile ? presenceMap[profile.user_id] : undefined}
+                      blocked={Boolean(userControls[partnerId]?.blocked)}
+                      blockedBy={Boolean(userControls[partnerId]?.blockedBy)}
                       onOpen={() => {
                         markMatchAsRead(match.id);
                         setActiveMatchId(match.id);
@@ -2149,6 +2191,8 @@ function ChatListButton({
   distanceLabel,
   unreadCount,
   presence,
+  blocked,
+  blockedBy,
   onOpen,
 }: {
   match: MatchRow;
@@ -2156,6 +2200,8 @@ function ChatListButton({
   distanceLabel: string | null;
   unreadCount: number;
   presence?: PlayerPresence;
+  blocked: boolean;
+  blockedBy: boolean;
   onOpen: () => void;
 }) {
   if (!profile) return null;
@@ -2173,9 +2219,15 @@ function ChatListButton({
           <h3 className="truncate text-xl font-black">{profile.display_name}, {profile.age}</h3>
           {isProfileVerified(profile) ? <span className="shrink-0 rounded-full bg-sky-400 px-2 py-1 text-[10px] font-bold text-slate-950">Verified</span> : null}
         </div>
-        <p className="mt-1 text-sm text-white/65">{presenceLabel} - {distanceLabel || profile.location_label || profile.city}</p>
+        <p className="mt-1 text-sm text-white/65">
+          {blocked ? "Blocked - tap to unblock" : blockedBy ? "Messaging unavailable" : `${presenceLabel} - ${distanceLabel || profile.location_label || profile.city}`}
+        </p>
       </div>
-      {unreadCount ? (
+      {blocked || blockedBy ? (
+        <span className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-[10px] font-black uppercase text-white/70">
+          {blocked ? "Blocked" : "Closed"}
+        </span>
+      ) : unreadCount ? (
         <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-black text-white">
           {unreadCount > 9 ? "9+" : unreadCount}
         </span>
@@ -2254,6 +2306,9 @@ function ChatPanel({
   onReport: () => void;
 }) {
   const isOnline = Boolean(presence?.is_online);
+  const isBlocked = Boolean(userControls.blocked);
+  const isBlockedBy = Boolean(userControls.blockedBy);
+  const communicationBlocked = isBlocked || isBlockedBy;
   const presenceLabel = isTyping ? "Typing..." : isOnline ? "Online" : formatLastSeen(presence?.last_seen_at);
   const dividerLabel = formatChatDivider(activeMessages[0]?.created_at);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -2392,13 +2447,13 @@ function ChatPanel({
           >
             {userControls.reported ? "Reported" : "Report"}
           </button>
-          <button onClick={onBlock} className="hidden rounded-full px-3 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-500/15 sm:block" aria-label="Block this match">
-            Block
+          <button onClick={onBlock} className={`hidden rounded-full px-3 py-2 text-xs font-bold transition sm:block ${isBlocked ? "bg-emerald-500 text-white hover:bg-emerald-400" : "text-rose-200 hover:bg-rose-500/15"}`} aria-label={isBlocked ? "Unblock this match" : "Block this match"}>
+            {isBlocked ? "Unblock" : "Block"}
           </button>
-          <button onClick={() => onStartCall("voice")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10" aria-label="Start voice call">
+          <button onClick={() => onStartCall("voice")} disabled={communicationBlocked} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10 disabled:opacity-40" aria-label="Start voice call">
             <PhoneIcon />
           </button>
-          <button onClick={() => onStartCall("video")} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10" aria-label="Start video call">
+          <button onClick={() => onStartCall("video")} disabled={communicationBlocked} className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/10 disabled:opacity-40" aria-label="Start video call">
             <VideoIcon />
           </button>
           <button className="hidden h-10 w-10 items-center justify-center rounded-full text-2xl font-black transition hover:bg-white/10 sm:flex" aria-label="Minimize chat">
@@ -2414,8 +2469,8 @@ function ChatPanel({
         <button onClick={onReport} className={`rounded-full px-3 py-2 ${userControls.reported ? "bg-rose-500 text-white" : "bg-white/10 text-white"}`}>
           {userControls.reported ? "Reported" : "Report"}
         </button>
-        <button onClick={onBlock} className="rounded-full bg-rose-500/15 px-3 py-2 text-rose-100">
-          Block
+        <button onClick={onBlock} className={`rounded-full px-3 py-2 ${isBlocked ? "bg-emerald-500 text-white" : "bg-rose-500/15 text-rose-100"}`}>
+          {isBlocked ? "Unblock" : "Block"}
         </button>
       </div>
 
@@ -2543,6 +2598,13 @@ function ChatPanel({
       </div>
 
       <div className="shrink-0 border-t border-white/10 bg-[#0b1728] px-3 py-3">
+        {communicationBlocked ? (
+          <div className="mb-3 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 text-sm leading-6 text-emerald-100">
+            {isBlocked
+              ? `You blocked ${activeMatchProfile.display_name}. They cannot message you, call you, or see your profile in discovery. Tap Unblock above to chat again.`
+              : `You cannot message ${activeMatchProfile.display_name} right now.`}
+          </div>
+        ) : null}
         {replyingTo ? (
           <div className="mb-3 flex items-center gap-3 rounded-2xl border-l-4 border-sky-300 bg-white/10 px-3 py-2 text-left">
             <div className="min-w-0 flex-1">
@@ -2581,6 +2643,7 @@ function ChatPanel({
         <div className="flex items-center gap-2">
           <button
             onClick={() => void toggleVoiceRecording()}
+            disabled={communicationBlocked}
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition ${isRecordingVoice ? "bg-rose-500 text-white" : "text-sky-300 hover:bg-white/10"}`}
             aria-label={isRecordingVoice ? "Stop recording voice note" : "Record voice message"}
           >
@@ -2592,7 +2655,7 @@ function ChatPanel({
               type="file"
               accept="image/*"
               className="sr-only"
-              disabled={saving}
+              disabled={saving || communicationBlocked}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
@@ -2609,25 +2672,26 @@ function ChatPanel({
           <input
             value={chatDraft}
             onChange={(event) => setChatDraft(event.target.value)}
+            disabled={communicationBlocked}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 sendCurrentMessage();
               }
             }}
-            placeholder="Aa"
-            className="min-w-0 flex-1 rounded-full bg-white/10 px-4 py-3 text-white outline-none placeholder:text-white/45"
+            placeholder={communicationBlocked ? (isBlocked ? "Unblock to message" : "Messaging unavailable") : "Aa"}
+            className="min-w-0 flex-1 rounded-full bg-white/10 px-4 py-3 text-white outline-none placeholder:text-white/45 disabled:opacity-60"
           />
           <button onClick={() => setShowEmojiPicker((current) => !current)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sky-300 transition hover:bg-white/10" aria-label="Choose emoji">
             <SmileIcon />
           </button>
-          <button onClick={chatDraft.trim() ? sendCurrentMessage : () => onQuickSend("\u{1F44D}")} disabled={saving} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
+          <button onClick={chatDraft.trim() ? sendCurrentMessage : () => onQuickSend("\u{1F44D}")} disabled={saving || communicationBlocked} className="flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 px-3 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-60" aria-label={chatDraft.trim() ? "Send message" : "Send like"}>
             {chatDraft.trim() ? "Send" : <ThumbIcon />}
           </button>
         </div>
         {draftWarning ? <p className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-3 py-2 text-xs font-semibold leading-5 text-amber-100">{draftWarning}</p> : null}
         {isRecordingVoice ? <p className="mt-2 text-center text-xs font-semibold text-rose-200">Recording... tap the mic again to send</p> : null}
-        <button onClick={onCommit} disabled={saving} className="mt-3 w-full rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:opacity-60">
+        <button onClick={onCommit} disabled={saving || communicationBlocked} className="mt-3 w-full rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500 disabled:opacity-60">
           Make It Official
         </button>
       </div>

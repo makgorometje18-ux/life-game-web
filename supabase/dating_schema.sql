@@ -103,7 +103,15 @@ alter table public.dating_reports enable row level security;
 
 drop policy if exists "dating profiles readable by signed in users" on public.dating_profiles;
 create policy "dating profiles readable by signed in users"
-on public.dating_profiles for select to authenticated using (is_active = true or auth.uid() = user_id);
+on public.dating_profiles for select to authenticated using (
+  (is_active = true or auth.uid() = user_id)
+  and not exists (
+    select 1
+    from public.dating_blocks block_row
+    where block_row.blocker_id = public.dating_profiles.user_id
+      and block_row.blocked_user_id = auth.uid()
+  )
+);
 
 drop policy if exists "users manage own dating profile" on public.dating_profiles;
 create policy "users manage own dating profile"
@@ -153,6 +161,18 @@ with check (
     from public.dating_matches match_row
     where match_row.id = match_id
       and (match_row.user_a = auth.uid() or match_row.user_b = auth.uid())
+      and not exists (
+        select 1
+        from public.dating_blocks block_row
+        where (
+          block_row.blocker_id = match_row.user_a
+          and block_row.blocked_user_id = match_row.user_b
+        )
+        or (
+          block_row.blocker_id = match_row.user_b
+          and block_row.blocked_user_id = match_row.user_a
+        )
+      )
   )
 );
 
@@ -179,7 +199,7 @@ with check (
 drop policy if exists "users read own dating blocks" on public.dating_blocks;
 create policy "users read own dating blocks"
 on public.dating_blocks for select to authenticated
-using (auth.uid() = blocker_id);
+using (auth.uid() = blocker_id or auth.uid() = blocked_user_id);
 
 drop policy if exists "users create own dating blocks" on public.dating_blocks;
 create policy "users create own dating blocks"
