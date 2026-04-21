@@ -146,6 +146,8 @@ const chatContactPrefix = "[chat-contact]";
 const chatPollPrefix = "[chat-poll]";
 const chatEventPrefix = "[chat-event]";
 const chatStickerPrefix = "[chat-sticker]";
+const chatLocationPrefix = "[chat-location]";
+const chatDatePlanPrefix = "[chat-date-plan]";
 const chatReplyPrefix = "[chat-reply]";
 const chatEmojis = ["😀", "😂", "😍", "😘", "🥰", "😎", "😢", "😡", "🔥", "❤️", "👍", "🙏", "🎉", "💯", "👀", "✨"];
 const rtcConfig: RTCConfiguration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
@@ -193,6 +195,8 @@ const isChatContactMessage = (body: string) => body.startsWith(chatContactPrefix
 const isChatPollMessage = (body: string) => body.startsWith(chatPollPrefix);
 const isChatEventMessage = (body: string) => body.startsWith(chatEventPrefix);
 const isChatStickerMessage = (body: string) => body.startsWith(chatStickerPrefix);
+const isChatLocationMessage = (body: string) => body.startsWith(chatLocationPrefix);
+const isChatDatePlanMessage = (body: string) => body.startsWith(chatDatePlanPrefix);
 type ChatAttachmentPayload = { url: string; name: string; type?: string; size?: number };
 const encodeChatPayload = (payload: unknown) => encodeURIComponent(JSON.stringify(payload));
 const decodeChatPayload = <T,>(body: string, prefix: string, fallback: T): T => {
@@ -208,6 +212,8 @@ const chatContactPayload = (body: string) => decodeChatPayload<{ name: string; d
 const chatPollPayload = (body: string) => decodeChatPayload<{ question: string; options: string[] }>(body, chatPollPrefix, { question: "Poll", options: [] });
 const chatEventPayload = (body: string) => decodeChatPayload<{ title: string; detail: string }>(body, chatEventPrefix, { title: "Event", detail: "" });
 const chatStickerValue = (body: string) => decodeURIComponent(body.replace(chatStickerPrefix, "")) || "👍";
+const chatLocationPayload = (body: string) => decodeChatPayload<{ latitude: number; longitude: number; label: string }>(body, chatLocationPrefix, { latitude: 0, longitude: 0, label: "Shared location" });
+const chatDatePlanPayload = (body: string) => decodeChatPayload<{ title: string; when: string; place: string; note: string }>(body, chatDatePlanPrefix, { title: "Date plan", when: "Soon", place: "To be decided", note: "" });
 type ChatReplyReference = { id: string; senderName: string; preview: string };
 const decodeChatReply = (body: string): { reply: ChatReplyReference | null; text: string } => {
   if (!body.startsWith(chatReplyPrefix)) return { reply: null, text: body };
@@ -234,6 +240,8 @@ const chatNotificationBody = (body: string) => {
   if (isChatPollMessage(text)) return "Sent you a poll.";
   if (isChatEventMessage(text)) return "Sent you an event.";
   if (isChatStickerMessage(text)) return "Sent you a sticker.";
+  if (isChatLocationMessage(text)) return "Sent you a location.";
+  if (isChatDatePlanMessage(text)) return "Sent you a date plan.";
   return text || "Open the inbox to reply.";
 };
 const riskyMessagePatterns = [
@@ -2468,6 +2476,10 @@ function ChatPanel({
                   ? `Event: ${chatEventPayload(text).title}`
                   : isChatStickerMessage(text)
                     ? `Sticker: ${chatStickerValue(text)}`
+                    : isChatLocationMessage(text)
+                      ? `Location: ${chatLocationPayload(text).label}`
+                      : isChatDatePlanMessage(text)
+                        ? `Date plan: ${chatDatePlanPayload(text).title}`
                     : text;
     return {
       id: message.id,
@@ -2512,6 +2524,32 @@ function ChatPanel({
     const sticker = window.prompt("Choose sticker emoji", "❤️");
     if (!sticker?.trim()) return;
     sendStructuredAttachment(`${chatStickerPrefix}${encodeURIComponent(sticker.trim())}`);
+  };
+  const sendLocationAttachment = () => {
+    setShowAttachMenu(false);
+    if (!navigator.geolocation) {
+      closeMenuWithNotice("Location is not available in this browser.");
+      return;
+    }
+    const allowed = window.confirm("Share your current live location in this chat?");
+    if (!allowed) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const latitude = Number(position.coords.latitude.toFixed(6));
+        const longitude = Number(position.coords.longitude.toFixed(6));
+        sendStructuredAttachment(`${chatLocationPrefix}${encodeChatPayload({ latitude, longitude, label: `Live location ${latitude}, ${longitude}` })}`);
+      },
+      () => closeMenuWithNotice("Could not read your location. Check GPS/location permission and try again."),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  };
+  const sendDatePlanAttachment = () => {
+    const title = window.prompt("Date plan title", "Coffee date");
+    if (!title?.trim()) return;
+    const when = window.prompt("When?", "This weekend") || "This weekend";
+    const place = window.prompt("Where?", "A public place nearby") || "A public place nearby";
+    const note = window.prompt("Note", "Let us confirm the time first.") || "";
+    sendStructuredAttachment(`${chatDatePlanPrefix}${encodeChatPayload({ title: title.trim(), when: when.trim(), place: place.trim(), note: note.trim() })}`);
   };
   const handleAttachmentInput = (event: ChangeEvent<HTMLInputElement>, kind: "document" | "media" | "camera" | "audio") => {
     const file = event.target.files?.[0];
@@ -2837,6 +2875,34 @@ function ChatPanel({
                     </div>
                   ) : isChatStickerMessage(messageBody) ? (
                     <div className="text-6xl leading-none drop-shadow-lg">{chatStickerValue(messageBody)}</div>
+                  ) : isChatLocationMessage(messageBody) ? (
+                    <a
+                      href={`https://www.google.com/maps?q=${chatLocationPayload(messageBody).latitude},${chatLocationPayload(messageBody).longitude}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`block max-w-xs rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}
+                    >
+                      <p className="text-xs font-black uppercase opacity-70">Location</p>
+                      <div className="mt-2 h-24 overflow-hidden rounded-2xl border border-white/15 bg-[linear-gradient(135deg,rgba(14,165,233,0.35),rgba(34,197,94,0.22),rgba(15,23,42,0.4))]">
+                        <div className="relative h-full">
+                          <span className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-300 shadow-[0_0_0_8px_rgba(125,211,252,0.2)]"></span>
+                          <span className="absolute left-0 top-1/2 h-px w-full bg-white/25"></span>
+                          <span className="absolute left-1/2 top-0 h-full w-px bg-white/25"></span>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm font-black">{chatLocationPayload(messageBody).label}</p>
+                      <p className="mt-1 text-xs opacity-75">Tap to open map</p>
+                    </a>
+                  ) : isChatDatePlanMessage(messageBody) ? (
+                    <div className={`max-w-xs rounded-[1.35rem] px-4 py-3 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
+                      <p className="text-xs font-black uppercase opacity-70">Date plan</p>
+                      <p className="mt-1 text-lg font-black">{chatDatePlanPayload(messageBody).title}</p>
+                      <div className="mt-3 grid gap-2 text-xs">
+                        <p className="rounded-2xl bg-white/10 px-3 py-2"><span className="font-black">When:</span> {chatDatePlanPayload(messageBody).when}</p>
+                        <p className="rounded-2xl bg-white/10 px-3 py-2"><span className="font-black">Where:</span> {chatDatePlanPayload(messageBody).place}</p>
+                        {chatDatePlanPayload(messageBody).note ? <p className="rounded-2xl bg-white/10 px-3 py-2">{chatDatePlanPayload(messageBody).note}</p> : null}
+                      </div>
+                    </div>
                   ) : (
                     <div className={`break-words rounded-[1.35rem] px-4 py-3 text-sm leading-6 shadow-sm ${isOwnMessage ? "bg-blue-600 text-white" : "bg-[#152238] text-white/90"}`}>
                       {messageBody}
@@ -3021,6 +3087,8 @@ function ChatPanel({
                   <button type="button" onClick={sendContactAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-sky-500">●</span><span>Contact</span></button>
                   <button type="button" onClick={sendPollAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-amber-500">≡</span><span>Poll</span></button>
                   <button type="button" onClick={sendEventAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-rose-500">▦</span><span>Event</span></button>
+                  <button type="button" onClick={sendLocationAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-lime-500">⌖</span><span>Location</span></button>
+                  <button type="button" onClick={sendDatePlanAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-fuchsia-500">♥</span><span>Date plan</span></button>
                   <button type="button" onClick={sendStickerAttachment} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"><span className="text-emerald-500">✚</span><span>New sticker</span></button>
                 </div>
               ) : null}
