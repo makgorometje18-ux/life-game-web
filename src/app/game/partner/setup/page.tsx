@@ -1573,9 +1573,9 @@ export default function PartnerSetupPage() {
       </div>
 
       {showLivenessCheck ? (
-        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/82 px-3 pb-5 backdrop-blur sm:items-center sm:pb-0">
-          <div className="w-full max-w-md overflow-hidden rounded-[2rem] border border-white/10 bg-[#07111f] text-white shadow-[0_30px_100px_rgba(0,0,0,0.7)]">
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
+        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/82 px-3 pb-5 backdrop-blur sm:items-center sm:pb-0 lg:p-6">
+          <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#07111f] text-white shadow-[0_30px_100px_rgba(0,0,0,0.7)] sm:max-h-[calc(100dvh-2rem)] lg:max-h-[calc(100dvh-3rem)] lg:max-w-5xl lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:rounded-[2rem]">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4 lg:col-span-2 lg:py-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-sky-200/70">Live selfie verification</p>
                 <h2 className="mt-2 text-2xl font-black">
@@ -1596,8 +1596,8 @@ export default function PartnerSetupPage() {
               </button>
             </div>
 
-            <div className="relative bg-black">
-              <video ref={livenessVideoRef} autoPlay muted playsInline className="aspect-[3/4] w-full bg-black object-cover" />
+            <div className="relative min-h-0 bg-black lg:flex lg:items-center lg:justify-center">
+              <video ref={livenessVideoRef} autoPlay muted playsInline className="aspect-[3/4] max-h-[54dvh] w-full bg-black object-cover sm:max-h-[60dvh] lg:h-full lg:max-h-[calc(100dvh-10rem)] lg:w-auto lg:max-w-full" />
               <canvas ref={livenessCanvasRef} className="hidden" />
 
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -1631,7 +1631,7 @@ export default function PartnerSetupPage() {
               ) : null}
             </div>
 
-            <div className="px-5 py-5">
+            <div className="min-h-0 overflow-y-auto px-5 py-5 lg:border-l lg:border-white/10 lg:py-4">
               <div className="grid grid-cols-6 gap-2">
                 {livenessSteps.map((item) => {
                   const done = completedLivenessSteps.includes(item.id) || livenessStatus === "verified";
