@@ -2430,6 +2430,7 @@ function ChatPanel({
   const [messageSearch, setMessageSearch] = useState("");
   const [replyingTo, setReplyingTo] = useState<ChatReplyReference | null>(null);
   const [openActionsFor, setOpenActionsFor] = useState<string | null>(null);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [showConversationMenu, setShowConversationMenu] = useState(false);
   const [forceSearchOpen, setForceSearchOpen] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -2499,6 +2500,14 @@ function ChatPanel({
   const closeMenuWithNotice = (notice: string) => {
     setMenuNotice(notice);
     setShowConversationMenu(false);
+  };
+  const openMessageActions = (messageId: string) => {
+    setSelectedMessageId(messageId);
+    setOpenActionsFor(messageId);
+  };
+  const closeMessageActions = () => {
+    setSelectedMessageId(null);
+    setOpenActionsFor(null);
   };
   const sendStructuredAttachment = (body: string) => {
     onQuickSend(body);
@@ -2817,11 +2826,28 @@ function ChatPanel({
             const isOwnMessage = message.sender_id === activePlayerId;
             const { reply, text: messageBody } = decodeChatReply(message.body);
             const messageWarning = safetySettings.scamWarnings && !isOwnMessage ? riskyMessageWarning(messageBody) : "";
+            const messageActionOpen = openActionsFor === message.id;
 
             return (
-              <div key={message.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+              <div
+                key={message.id}
+                className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  openMessageActions(message.id);
+                }}
+              >
                 <div className={`max-w-[78%] ${isOwnMessage ? "items-end" : "items-start"} flex flex-col`}>
-                  <div className={`group relative flex items-start gap-2 ${isOwnMessage ? "flex-row-reverse" : ""}`}>
+                  <div
+                    className={`group relative flex items-start gap-2 rounded-3xl transition ${selectedMessageId === message.id ? "bg-white/5 p-1" : ""} ${isOwnMessage ? "flex-row-reverse" : ""}`}
+                    onPointerDown={(event) => {
+                      const target = event.target as HTMLElement;
+                      if (target.closest("button,a,input,audio,video")) return;
+                      window.setTimeout(() => {
+                        if (event.buttons === 1 || event.pointerType === "touch") openMessageActions(message.id);
+                      }, 520);
+                    }}
+                  >
                   <div className={`${isOwnMessage ? "items-end" : "items-start"} flex min-w-0 flex-col`}>
                   {reply ? (
                     <div className={`mb-1 max-w-full rounded-2xl border-l-4 px-3 py-2 text-left text-xs leading-5 ${isOwnMessage ? "border-emerald-300 bg-blue-500/28 text-white/82" : "border-sky-300 bg-white/8 text-white/76"}`}>
@@ -2865,6 +2891,16 @@ function ChatPanel({
                       <p className="font-black">{chatPollPayload(messageBody).question}</p>
                       <div className="mt-3 grid gap-2">
                         {chatPollPayload(messageBody).options.map((option) => <span key={option} className="rounded-full border border-white/20 px-3 py-2 text-xs font-bold">{option}</span>)}
+                        <button type="button" onClick={() => closeMenuWithNotice("Pinned messages will be added to the social profile timeline soon.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">Pin</span><span>Pin</span></button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Ask AI will help summarize or suggest replies in a future upgrade.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">AI</span><span>Ask AI</span></button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Message starred.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">*</span><span>Star</span></button>
+                        <div className="my-1 border-t border-white/10"></div>
+                        <button type="button" onClick={() => { setSelectionMode(true); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">Sel</span><span>Select</span></button>
+                        <button type="button" onClick={() => { setChatDraft(`${chatDraft} ❤️`); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">♥</span><span>React</span></button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Saved to memories. We can make this permanent with a saved_messages table later.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">Save</span><span>Save</span></button>
+                        <div className="my-1 border-t border-white/10"></div>
+                        <button type="button" onClick={() => { onReport(); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-amber-100 hover:bg-amber-400/10"><span className="w-5 text-center">!</span><span>Report message</span></button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Delete needs a message delete policy before it can remove messages from Supabase safely.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-rose-200 hover:bg-rose-500/10"><span className="w-5 text-center">Del</span><span>Delete</span></button>
                       </div>
                     </div>
                   ) : isChatEventMessage(messageBody) ? (
@@ -2910,23 +2946,16 @@ function ChatPanel({
                   )}
                   </div>
                   <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setOpenActionsFor((current) => (current === message.id ? null : message.id))}
-                      className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-white/55 opacity-100 transition hover:bg-white/10 hover:text-white sm:opacity-0 sm:group-hover:opacity-100"
-                      aria-label="Message options"
-                    >
-                      ...
-                    </button>
-                    {openActionsFor === message.id ? (
-                      <div className={`absolute top-9 z-20 w-44 overflow-hidden rounded-2xl border border-white/10 bg-[#f8fafc] py-1 text-sm font-semibold text-slate-800 shadow-2xl ${isOwnMessage ? "right-0" : "left-0"}`}>
+                    {messageActionOpen ? (
+                      <div className={`absolute top-full z-30 mt-2 w-64 overflow-hidden rounded-3xl border border-white/12 bg-[#101827]/95 p-2 text-sm font-semibold text-white shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur ${isOwnMessage ? "right-0" : "left-0"}`}>
+                        <button type="button" onClick={() => closeMenuWithNotice(`Sent ${formatSentAt(message.created_at)}${message.read_at ? `, seen ${formatSentAt(message.read_at)}` : ""}`)} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">i</span><span>Message info</span></button>
                         <button
                           type="button"
                           onClick={() => {
                             setReplyingTo(replyReferenceFor(message));
-                            setOpenActionsFor(null);
+                            closeMessageActions();
                           }}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"
+                          className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"
                         >
                           <span>↩</span>
                           <span>Reply</span>
@@ -2935,9 +2964,9 @@ function ChatPanel({
                           type="button"
                           onClick={() => {
                             void navigator.clipboard?.writeText(messageBody);
-                            setOpenActionsFor(null);
+                            closeMessageActions();
                           }}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"
+                          className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"
                         >
                           <span>□</span>
                           <span>Copy</span>
@@ -2946,9 +2975,9 @@ function ChatPanel({
                           type="button"
                           onClick={() => {
                             setChatDraft(`Forwarded: ${messageBody}`);
-                            setOpenActionsFor(null);
+                            closeMessageActions();
                           }}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"
+                          className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"
                         >
                           <span>↷</span>
                           <span>Forward</span>
