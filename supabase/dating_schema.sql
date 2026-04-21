@@ -73,10 +73,33 @@ create table if not exists public.dating_messages (
   read_at timestamptz
 );
 
+create table if not exists public.dating_blocks (
+  id uuid primary key default gen_random_uuid(),
+  blocker_id uuid not null references public.players(id) on delete cascade,
+  blocked_user_id uuid not null references public.players(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (blocker_id, blocked_user_id),
+  constraint dating_block_pair_check check (blocker_id <> blocked_user_id)
+);
+
+create table if not exists public.dating_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid not null references public.players(id) on delete cascade,
+  reported_user_id uuid not null references public.players(id) on delete cascade,
+  reason text not null default 'No details provided.',
+  status text not null default 'open',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (reporter_id, reported_user_id),
+  constraint dating_report_pair_check check (reporter_id <> reported_user_id)
+);
+
 alter table public.dating_profiles enable row level security;
 alter table public.dating_likes enable row level security;
 alter table public.dating_matches enable row level security;
 alter table public.dating_messages enable row level security;
+alter table public.dating_blocks enable row level security;
+alter table public.dating_reports enable row level security;
 
 drop policy if exists "dating profiles readable by signed in users" on public.dating_profiles;
 create policy "dating profiles readable by signed in users"
@@ -152,6 +175,37 @@ with check (
       and (match_row.user_a = auth.uid() or match_row.user_b = auth.uid())
   )
 );
+
+drop policy if exists "users read own dating blocks" on public.dating_blocks;
+create policy "users read own dating blocks"
+on public.dating_blocks for select to authenticated
+using (auth.uid() = blocker_id);
+
+drop policy if exists "users create own dating blocks" on public.dating_blocks;
+create policy "users create own dating blocks"
+on public.dating_blocks for insert to authenticated
+with check (auth.uid() = blocker_id);
+
+drop policy if exists "users delete own dating blocks" on public.dating_blocks;
+create policy "users delete own dating blocks"
+on public.dating_blocks for delete to authenticated
+using (auth.uid() = blocker_id);
+
+drop policy if exists "users read own dating reports" on public.dating_reports;
+create policy "users read own dating reports"
+on public.dating_reports for select to authenticated
+using (auth.uid() = reporter_id);
+
+drop policy if exists "users create own dating reports" on public.dating_reports;
+create policy "users create own dating reports"
+on public.dating_reports for insert to authenticated
+with check (auth.uid() = reporter_id);
+
+drop policy if exists "users update own dating reports" on public.dating_reports;
+create policy "users update own dating reports"
+on public.dating_reports for update to authenticated
+using (auth.uid() = reporter_id)
+with check (auth.uid() = reporter_id);
 
 insert into storage.buckets (id, name, public)
 values ('dating-photos', 'dating-photos', true)

@@ -72,6 +72,15 @@ type MessageRow = {
   read_at: string | null;
 };
 
+type DatingBlockRow = {
+  blocked_user_id: string;
+};
+
+type DatingReportRow = {
+  reported_user_id: string;
+  reason: string | null;
+};
+
 type AppTab = "swipe" | "explore" | "likes" | "chat" | "profile";
 type CallKind = "voice" | "video";
 type CallStatus = "idle" | "calling" | "incoming" | "connecting" | "connected";
@@ -323,6 +332,46 @@ export default function PartnerScenePage() {
     });
   };
 
+  const saveBlockControl = async (userId: string, blocked: boolean) => {
+    if (!player) return;
+
+    updateUserControls(userId, { blocked });
+
+    if (blocked) {
+      const { error: blockError } = await supabase
+        .from("dating_blocks")
+        .upsert({ blocker_id: player.id, blocked_user_id: userId }, { onConflict: "blocker_id,blocked_user_id" });
+      if (blockError) console.warn("Could not persist dating block", blockError);
+      return;
+    }
+
+    const { error: unblockError } = await supabase
+      .from("dating_blocks")
+      .delete()
+      .eq("blocker_id", player.id)
+      .eq("blocked_user_id", userId);
+    if (unblockError) console.warn("Could not persist dating unblock", unblockError);
+  };
+
+  const saveReportControl = async (userId: string, reason: string) => {
+    if (!player) return;
+
+    updateUserControls(userId, { reported: true, reportNote: reason });
+
+    const { error: reportError } = await supabase
+      .from("dating_reports")
+      .upsert(
+        {
+          reporter_id: player.id,
+          reported_user_id: userId,
+          reason: reason || "No details provided.",
+          status: "open",
+        },
+        { onConflict: "reporter_id,reported_user_id" }
+      );
+    if (reportError) console.warn("Could not persist dating report", reportError);
+  };
+
   const loadScene = async (preserveMatchId?: string) => {
     try {
       setError("");
@@ -405,6 +454,18 @@ export default function PartnerScenePage() {
         return;
       }
 
+      const { data: blockRows, error: blockError } = await supabase
+        .from("dating_blocks")
+        .select("blocked_user_id")
+        .eq("blocker_id", user.id);
+      const { data: reportRows, error: reportError } = await supabase
+        .from("dating_reports")
+        .select("reported_user_id, reason")
+        .eq("reporter_id", user.id);
+
+      if (blockError) console.warn("Could not load dating blocks", blockError);
+      if (reportError) console.warn("Could not load dating reports", reportError);
+
       const typedMatches = (matchRows || []) as MatchRow[];
       const partnerIds = typedMatches.map((row) => (row.user_a === user.id ? row.user_b : row.user_a));
       const ownDatingProfile = ownProfile as DatingProfile;
@@ -462,6 +523,16 @@ export default function PartnerScenePage() {
       }
 
       const nextLikedIds = (likesMade || []).map((row) => row.liked_user_id);
+      const remoteControls = [
+        ...(((blockRows || []) as DatingBlockRow[]).map((row) => [row.blocked_user_id, { blocked: true }] as const)),
+        ...(((reportRows || []) as DatingReportRow[]).map((row) => [
+          row.reported_user_id,
+          { reported: true, reportNote: row.reason || "" },
+        ] as const)),
+      ].reduce<Record<string, PartnerUserControls>>((accumulator, [userId, controls]) => {
+        accumulator[userId] = { ...accumulator[userId], ...controls };
+        return accumulator;
+      }, {});
       setPlayer(playerData as PlayerRecord);
       setProgress(extra);
       setProfiles(visibleProfiles);
@@ -471,6 +542,15 @@ export default function PartnerScenePage() {
       setMessages(messageRows);
       setLikedIds(nextLikedIds);
       setLikedMeIds((likesReceived || []).map((row) => row.liker_id));
+      if (Object.keys(remoteControls).length) {
+        setUserControls((current) => {
+          const next = { ...current, ...remoteControls };
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(userControlsKey(user.id), JSON.stringify(next));
+          }
+          return next;
+        });
+      }
       setActiveMatchId((current) => preserveMatchId || current);
       setLoading(false);
     } catch (loadError) {
@@ -1572,7 +1652,7 @@ export default function PartnerScenePage() {
     <main
       className={`min-h-screen transition-colors ${
         activeMatch
-          ? "overflow-hidden bg-[#071323] text-white"
+          ? "overflow-hidden bg-[#050b14] text-white lg:flex lg:items-center lg:justify-center lg:p-6"
           : `px-3 pb-24 pt-16 sm:px-4 sm:pb-32 sm:pt-24 ${
               isLightMode
                 ? "bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_34%,#ffffff_100%)] text-slate-950"
@@ -1605,7 +1685,7 @@ export default function PartnerScenePage() {
         </>
       ) : null}
 
-      <div className={`mx-auto flex w-full flex-col ${activeMatch ? "h-screen max-w-none gap-0" : "max-w-md gap-5"}`}>
+      <div className={`mx-auto flex w-full flex-col ${activeMatch ? "h-dvh max-w-6xl gap-0 lg:h-[calc(100dvh-3rem)]" : "max-w-md gap-5 lg:max-w-5xl"}`}>
         {error ? <p className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{error}</p> : null}
 
         {activeTab === "swipe" ? (
@@ -1642,7 +1722,7 @@ export default function PartnerScenePage() {
         ) : null}
 
         {activeTab === "chat" ? (
-          <section className={activeMatch ? "fixed inset-0 z-[90] h-dvh overflow-hidden bg-[#071323] text-white" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
+          <section className={activeMatch ? "fixed inset-0 z-[90] h-dvh overflow-hidden bg-[#050b14] text-white lg:flex lg:items-center lg:justify-center lg:p-6" : "rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-xl backdrop-blur"}>
             {!activeMatch ? (
               <>
                 <p className="text-sm uppercase tracking-[0.3em] text-white/50">Inbox</p>
@@ -1678,13 +1758,13 @@ export default function PartnerScenePage() {
                 onStartCall={(kind) => void startCall(kind)}
                 onToggleMute={() => updateUserControls(activeMatchProfile.user_id, { muted: !activeMatchControls.muted })}
                 onBlock={() => {
-                  updateUserControls(activeMatchProfile.user_id, { blocked: true });
+                  void saveBlockControl(activeMatchProfile.user_id, true);
                   setActiveMatchId("");
                 }}
                 onReport={() => {
                   const reportNote = window.prompt("Describe what happened. This report is saved on this device for now.");
                   if (reportNote === null) return;
-                  updateUserControls(activeMatchProfile.user_id, { reported: true, reportNote: reportNote.trim() });
+                  void saveReportControl(activeMatchProfile.user_id, reportNote.trim());
                 }}
               />
             ) : visibleMatches.length ? (
@@ -2235,7 +2315,7 @@ function ChatPanel({
   }, [latestMessageKey, isTyping]);
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col bg-[#071323] text-white">
+    <div className="flex h-dvh min-h-0 w-full flex-col bg-[#071323] text-white lg:h-[calc(100dvh-3rem)] lg:max-w-6xl lg:overflow-hidden lg:rounded-[1.5rem] lg:border lg:border-white/10 lg:shadow-[0_28px_90px_rgba(0,0,0,0.45)]">
       <div className="shrink-0 flex items-center gap-3 border-b border-white/10 bg-[#0b1728] px-4 py-3 shadow-sm">
         <button onClick={onBack} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-black text-white transition hover:bg-white/15" aria-label="Back to chats">
           &lt;
