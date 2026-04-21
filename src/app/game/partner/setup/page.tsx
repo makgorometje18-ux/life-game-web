@@ -1503,11 +1503,18 @@ export default function PartnerSetupPage() {
                 </p>
               </div>
 
-              <div className="relative mx-auto flex h-36 w-36 items-center justify-center rounded-full bg-white/95 text-stone-900 shadow-[0_24px_70px_rgba(255,255,255,0.13),0_0_0_18px_rgba(255,255,255,0.035)] max-[380px]:h-28 max-[380px]:w-28 sm:h-44 sm:w-44">
-                <span className="absolute h-9 w-9 rounded-full border-2 border-stone-400 border-b-transparent"></span>
+              <div className="relative mx-auto flex h-40 w-40 items-center justify-center rounded-full bg-white/95 text-stone-900 shadow-[0_24px_70px_rgba(255,255,255,0.16),0_0_0_20px_rgba(255,255,255,0.035),0_0_70px_rgba(255,255,255,0.14)] max-[380px]:h-32 max-[380px]:w-32 sm:h-48 sm:w-48">
+                <span className="absolute inset-0 rounded-full border border-white/40 animate-ping"></span>
+                <span className="absolute inset-3 rounded-full border border-stone-200 bg-white/35 animate-pulse"></span>
+                <span className="absolute h-[74%] w-[74%] rounded-full border border-stone-300"></span>
+                <span className="absolute h-[42%] w-[42%] rounded-full border border-stone-300"></span>
+                <span className="absolute h-[2px] w-[74%] rounded-full bg-stone-300/80 animate-pulse"></span>
+                <span className="absolute h-[74%] w-[2px] rounded-full bg-stone-300/80 animate-pulse"></span>
+                <span className="absolute h-9 w-9 rounded-full border-2 border-stone-400 border-b-transparent animate-spin"></span>
                 <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-stone-300 text-4xl">⌖</div>
               </div>
 
+              <div className="pb-12 max-[380px]:pb-10">
               <button
                 onClick={openLocationPermission}
                 disabled={locating}
@@ -1517,7 +1524,7 @@ export default function PartnerSetupPage() {
               </button>
               <button
                 type="button"
-                className="mx-auto mt-4 flex items-center justify-center gap-3 text-center text-sm font-black leading-6 text-white/80 max-[380px]:mt-3"
+                className="mx-auto mt-5 flex items-center justify-center gap-2 rounded-full bg-black/20 px-4 py-2 text-center text-sm font-black leading-6 text-white/84 backdrop-blur max-[380px]:mt-4"
                 onClick={() =>
                   setMessage("Your location is used only for nearby partner matching and is saved after you approve the device location popup.")
                 }
@@ -1525,6 +1532,7 @@ export default function PartnerSetupPage() {
                 <span>How is my location used?</span>
                 <span className="text-3xl leading-none text-white/70">↓</span>
               </button>
+              </div>
             </div>
           ) : null}
 
