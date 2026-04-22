@@ -2448,6 +2448,7 @@ function ChatPanel({
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const messageLongPressTimerRef = useRef<number | null>(null);
   const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const latestMessageKey = activeMessages.map((message) => `${message.id}:${message.read_at || ""}`).join("|");
@@ -2504,6 +2505,12 @@ function ChatPanel({
   const openMessageActions = (messageId: string) => {
     setSelectedMessageId(messageId);
     setOpenActionsFor(messageId);
+  };
+  const clearMessageLongPress = () => {
+    if (messageLongPressTimerRef.current !== null) {
+      window.clearTimeout(messageLongPressTimerRef.current);
+      messageLongPressTimerRef.current = null;
+    }
   };
   const closeMessageActions = () => {
     setSelectedMessageId(null);
@@ -2686,6 +2693,7 @@ function ChatPanel({
 
   useEffect(() => {
     return () => {
+      clearMessageLongPress();
       stopVoiceTimer();
       recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
       if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
@@ -2843,10 +2851,12 @@ function ChatPanel({
                     onPointerDown={(event) => {
                       const target = event.target as HTMLElement;
                       if (target.closest("button,a,input,audio,video")) return;
-                      window.setTimeout(() => {
-                        if (event.buttons === 1 || event.pointerType === "touch") openMessageActions(message.id);
-                      }, 520);
+                      clearMessageLongPress();
+                      messageLongPressTimerRef.current = window.setTimeout(() => openMessageActions(message.id), 430);
                     }}
+                    onPointerUp={clearMessageLongPress}
+                    onPointerCancel={clearMessageLongPress}
+                    onPointerLeave={clearMessageLongPress}
                   >
                   <div className={`${isOwnMessage ? "items-end" : "items-start"} flex min-w-0 flex-col`}>
                   {reply ? (
@@ -2891,16 +2901,6 @@ function ChatPanel({
                       <p className="font-black">{chatPollPayload(messageBody).question}</p>
                       <div className="mt-3 grid gap-2">
                         {chatPollPayload(messageBody).options.map((option) => <span key={option} className="rounded-full border border-white/20 px-3 py-2 text-xs font-bold">{option}</span>)}
-                        <button type="button" onClick={() => closeMenuWithNotice("Pinned messages will be added to the social profile timeline soon.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">Pin</span><span>Pin</span></button>
-                        <button type="button" onClick={() => closeMenuWithNotice("Ask AI will help summarize or suggest replies in a future upgrade.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">AI</span><span>Ask AI</span></button>
-                        <button type="button" onClick={() => closeMenuWithNotice("Message starred.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">*</span><span>Star</span></button>
-                        <div className="my-1 border-t border-white/10"></div>
-                        <button type="button" onClick={() => { setSelectionMode(true); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">Sel</span><span>Select</span></button>
-                        <button type="button" onClick={() => { setChatDraft(`${chatDraft} ❤️`); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">♥</span><span>React</span></button>
-                        <button type="button" onClick={() => closeMenuWithNotice("Saved to memories. We can make this permanent with a saved_messages table later.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10"><span className="w-5 text-center">Save</span><span>Save</span></button>
-                        <div className="my-1 border-t border-white/10"></div>
-                        <button type="button" onClick={() => { onReport(); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-amber-100 hover:bg-amber-400/10"><span className="w-5 text-center">!</span><span>Report message</span></button>
-                        <button type="button" onClick={() => closeMenuWithNotice("Delete needs a message delete policy before it can remove messages from Supabase safely.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-rose-200 hover:bg-rose-500/10"><span className="w-5 text-center">Del</span><span>Delete</span></button>
                       </div>
                     </div>
                   ) : isChatEventMessage(messageBody) ? (
@@ -2981,6 +2981,40 @@ function ChatPanel({
                         >
                           <span>↷</span>
                           <span>Forward</span>
+                        </button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Pinned messages will be added to the social profile timeline soon.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10">
+                          <span className="w-5 text-center">Pin</span>
+                          <span>Pin</span>
+                        </button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Ask AI will help summarize or suggest replies in a future upgrade.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10">
+                          <span className="w-5 text-center">AI</span>
+                          <span>Ask AI</span>
+                        </button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Message starred.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10">
+                          <span className="w-5 text-center">*</span>
+                          <span>Star</span>
+                        </button>
+                        <div className="my-1 border-t border-white/10" />
+                        <button type="button" onClick={() => { setSelectionMode(true); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10">
+                          <span className="w-5 text-center">Sel</span>
+                          <span>Select</span>
+                        </button>
+                        <button type="button" onClick={() => { setChatDraft(`${chatDraft} ❤️`); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10">
+                          <span className="w-5 text-center">+</span>
+                          <span>React</span>
+                        </button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Saved to memories. We can make this permanent with a saved_messages table later.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left hover:bg-white/10">
+                          <span className="w-5 text-center">Save</span>
+                          <span>Save</span>
+                        </button>
+                        <div className="my-1 border-t border-white/10" />
+                        <button type="button" onClick={() => { onReport(); closeMessageActions(); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-amber-100 hover:bg-amber-400/10">
+                          <span className="w-5 text-center">!</span>
+                          <span>Report message</span>
+                        </button>
+                        <button type="button" onClick={() => closeMenuWithNotice("Delete needs a message delete policy before it can remove messages from Supabase safely.")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-rose-200 hover:bg-rose-500/10">
+                          <span className="w-5 text-center">Del</span>
+                          <span>Delete</span>
                         </button>
                       </div>
                     ) : null}
